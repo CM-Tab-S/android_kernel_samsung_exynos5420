@@ -7,6 +7,7 @@
 #define AID_PARAM_SIZE	ARRAY_SIZE(SEQ_AOR_CONTROL)
 #define ELVSS_TABLE_NUM 2
 
+<<<<<<< HEAD
 enum {
 	GAMMA_2CD,
 	GAMMA_3CD,
@@ -73,6 +74,8 @@ enum {
 	GAMMA_HBM,
 	GAMMA_MAX
 };
+=======
+>>>>>>> b682b99... importet sammy NJ2
 
 static const unsigned char SEQ_READ_ID[] = {
 	0x04,
@@ -397,8 +400,19 @@ enum {
 	ELVSS_STATUS_MAX
 };
 
+<<<<<<< HEAD
 #define ELVSS_DELTA	8
 static const unsigned char ELVSS_TABLE[ELVSS_STATUS_MAX][ELVSS_TABLE_NUM] = {
+=======
+static const unsigned int ELVSS_DIM_TABLE[ELVSS_STATUS_MAX] = {
+	105,111,119,126,134,143,152,162,172,183,195,207,220,234,249,265,282,300,400	
+};
+
+
+
+static const int  ELVSS_DELTA_RevD = 8;
+static const unsigned char ELVSS_TABLE_RevD[ELVSS_STATUS_MAX][ELVSS_TABLE_NUM] = {
+>>>>>>> b682b99... importet sammy NJ2
 	{0x1F, 0x1F},
 	{0x1F, 0x1F},
 	{0x1F, 0x1F},
@@ -417,6 +431,7 @@ static const unsigned char ELVSS_TABLE[ELVSS_STATUS_MAX][ELVSS_TABLE_NUM] = {
 	{0x1B, 0x1E},
 	{0x1A, 0x1D},
 	{0x19, 0x1C},
+<<<<<<< HEAD
 	{0x19, 0x1C},//hbm
 };
 
@@ -425,6 +440,63 @@ const unsigned char (*pELVSS_TABLE)[ELVSS_TABLE_NUM] = ELVSS_TABLE;
 enum {
 	ACL_STATUS_0P,
 	ACL_STATUS_25P,
+=======
+	{0x19, 0x19},//hbm
+};
+
+static const unsigned char ELVSS_TABLE_RevF[ELVSS_STATUS_MAX][ELVSS_TABLE_NUM] = {
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1E, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1C, 0x1F},
+	{0x1B, 0x1E},
+	{0x1A, 0x1D},
+	{0x19, 0x1C},
+	{0x19, 0x19},//hbm
+};
+
+static const int  ELVSS_DELTA = 11;
+static const unsigned char ELVSS_TABLE[ELVSS_STATUS_MAX][ELVSS_TABLE_NUM] = {
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1F, 0x1F},
+	{0x1E, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1D, 0x1F},
+	{0x1C, 0x1E},
+	{0x1B, 0x1D},
+	{0x1A, 0x1C},
+	{0x19, 0x1B},
+	{0x19, 0x19},//hbm
+};
+
+
+const unsigned char (*pELVSS_TABLE)[ELVSS_TABLE_NUM] = ELVSS_TABLE;
+const int *pelvss_delta = &ELVSS_DELTA;
+
+enum {
+	ACL_STATUS_0P,
+	ACL_STATUS_15P,
+>>>>>>> b682b99... importet sammy NJ2
 	ACL_STATUS_MAX
 };
 
@@ -433,9 +505,15 @@ static const unsigned char SEQ_ACL_OFF[] = {
 	0x10
 };
 
+<<<<<<< HEAD
 static const unsigned char SEQ_ACL_25[] = {
 	0xBB,
 	0x11,
+=======
+static const unsigned char SEQ_ACL_15[] = {
+	0xBB,
+	0x12,
+>>>>>>> b682b99... importet sammy NJ2
 };
 
 
@@ -452,6 +530,10 @@ static const unsigned char SEQ_ACL_UPDATE[] = {
 
 static const unsigned char *ACL_CUTOFF_TABLE[ACL_STATUS_MAX] = {
 	SEQ_ACL_OFF,
+<<<<<<< HEAD
 	SEQ_ACL_25,
+=======
+	SEQ_ACL_15,
+>>>>>>> b682b99... importet sammy NJ2
 };
 #endif /* __S6E3FA0_PARAM_H__ */

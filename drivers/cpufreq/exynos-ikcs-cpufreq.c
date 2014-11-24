@@ -40,7 +40,7 @@
 #include <mach/asv-exynos.h>
 #include <plat/cpu.h>
 
-#if defined(CONFIG_RTC_DRV_MAX77802)
+#if defined(CONFIG_RTC_DRV_MAX77802) || defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT) 
 extern bool pmic_is_jig_attached;
 #endif
 
@@ -620,6 +620,11 @@ static int exynos_target(struct cpufreq_policy *policy,
 			}
 		}
 #endif
+		if (cur == CA15 && exynos_getspeed_cluster(cur) > STEP_LEVEL_CA15_MIN) {
+			exynos_cpufreq_scale(STEP_LEVEL_CA15_MIN, freqs[cur]->old, policy->cpu);
+			freqs[cur]->old = exynos_getspeed_cluster(cur);
+			policy->cur = freqs[cur]->old;
+		}
 
 		cur = exynos_switch(policy, old_cur);
 		if (old_cur == cur) {
@@ -1176,7 +1181,7 @@ struct freq_qos_val {
 
 static void get_boot_freq_qos(struct freq_qos_val *boot_freq_qos)
 {
-#if defined(CONFIG_RTC_DRV_MAX77802) || defined(CONFIG_CHAGALL)
+#if defined(CONFIG_RTC_DRV_MAX77802) || defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT)
 	if (pmic_is_jig_attached) {
 #if defined(CONFIG_TARGET_LOCALE_DEMO)
 		boot_freq_qos->min_freq = 1000000;

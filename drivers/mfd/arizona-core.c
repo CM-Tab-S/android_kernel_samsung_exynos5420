@@ -245,8 +245,6 @@ static int arizona_apply_hardware_patch(struct arizona* arizona)
 	unsigned int fll, sysclk;
 	int ret;
 
-	regcache_cache_bypass(arizona->regmap, true);
-
 	/* Cache existing FLL and SYSCLK settings */
 	ret = regmap_read(arizona->regmap, ARIZONA_FLL1_CONTROL_1, &fll);
 	if (ret < 0) {
@@ -316,8 +314,6 @@ err_fll:
 		dev_err(arizona->dev,
 			"Failed to re-apply old FLL settings: %d\n",
 			ret);
-
-	regcache_cache_bypass(arizona->regmap, false);
 	return ret;
 }
 
@@ -395,12 +391,14 @@ static int arizona_runtime_suspend(struct device *dev)
 #endif
 
 #ifdef CONFIG_PM_SLEEP
-static int arizona_suspend(struct device *dev)
+static int arizona_resume_noirq(struct device *dev)
 {
 	struct arizona *arizona = dev_get_drvdata(dev);
 
-	dev_dbg(arizona->dev, "Suspend, disabling IRQ\n");
+	dev_dbg(arizona->dev, "Early resume, disabling IRQ\n");
 	disable_irq(arizona->irq);
+
+	arizona->irq_sem = 1;
 
 	return 0;
 }
@@ -409,8 +407,11 @@ static int arizona_resume(struct device *dev)
 {
 	struct arizona *arizona = dev_get_drvdata(dev);
 
-	dev_dbg(arizona->dev, "Resume, reenabling IRQ\n");
+	dev_dbg(arizona->dev, "Late resume, reenabling IRQ\n");
+	if (arizona->irq_sem) {
 	enable_irq(arizona->irq);
+		arizona->irq_sem = 0;
+	}
 
 	return 0;
 }
@@ -420,7 +421,10 @@ const struct dev_pm_ops arizona_pm_ops = {
 	SET_RUNTIME_PM_OPS(arizona_runtime_suspend,
 			   arizona_runtime_resume,
 			   NULL)
-	SET_SYSTEM_SLEEP_PM_OPS(arizona_suspend, arizona_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(NULL, arizona_resume)
+#ifdef CONFIG_PM_SLEEP
+	.resume_noirq = arizona_resume_noirq,
+#endif
 };
 EXPORT_SYMBOL_GPL(arizona_pm_ops);
 
@@ -454,6 +458,7 @@ int __devinit arizona_dev_init(struct arizona *arizona)
 
 	dev_set_drvdata(arizona->dev, arizona);
 	mutex_init(&arizona->clk_lock);
+	mutex_init(&arizona->reg_setting_lock);
 
 	if (dev_get_platdata(arizona->dev))
 		memcpy(&arizona->pdata, dev_get_platdata(arizona->dev),

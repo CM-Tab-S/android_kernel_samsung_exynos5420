@@ -40,7 +40,7 @@
 #include <mach/gpio-exynos.h>
 
 #if defined(CONFIG_ICE4_TWO_FUNC_INPUT)
-#if defined(CONFIG_CHAGALL)
+#if defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT)
 #include "ice4_fpga_ch.h"
 #else
 #include "ice4_fpga_v1a.h"
@@ -735,8 +735,11 @@ static ssize_t remocon_show(struct device *dev, struct device_attribute *attr,
 	}
 	return strlen(buf);
 }
-
+#if defined(CONFIG_SEC_FACTORY)
+static DEVICE_ATTR(ir_send, 0666, remocon_show, remocon_store);
+#else
 static DEVICE_ATTR(ir_send, 0664, remocon_show, remocon_store);
+#endif
 /* sysfs node ir_send_result */
 static ssize_t remocon_ack(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -899,6 +902,8 @@ static int __devinit barcode_emul_probe(struct i2c_client *client,
 		goto alloc_fail;
 	}
 
+#if !defined(CONFIG_ICE4_TWO_FUNC_INPUT)
+/* With this configuration, FW will be updated in workqueue */
 	if (check_fpga_cdone()) {
 		fw_loaded = 1;
 		pr_barcode("FPGA FW is loaded!\n");
@@ -906,6 +911,7 @@ static int __devinit barcode_emul_probe(struct i2c_client *client,
 		fw_loaded = 0;
 		pr_barcode("FPGA FW is NOT loaded!\n");
 	}
+#endif
 
 	data->client = client;
 #if defined(CONFIG_IR_REMOCON_FPGA)
@@ -938,10 +944,13 @@ static int __devinit barcode_emul_probe(struct i2c_client *client,
 
 	pr_err("probe complete %s\n", __func__);
 
+	return 0;
+
 err_create_wq:
+	kfree(data);
 #endif
 alloc_fail:
-	return 0;
+	return -ENOMEM;
 }
 
 static int __devexit barcode_emul_remove(struct i2c_client *client)

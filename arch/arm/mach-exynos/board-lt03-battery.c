@@ -81,6 +81,8 @@ static sec_charging_current_t charging_current_table[] = {
 	{0,	0,	0,	0},
 	{0,	0,	0,	0},
 	{1000,	1000,	250,	40*60},/* LAN hub */
+	{460,	460,	250,	40*60},/*mhl usb*/
+	{0, 0,	0,	0},/*power sharing*/
 };
 
 static bool sec_bat_adc_none_init(
@@ -114,6 +116,9 @@ static int sec_bat_adc_ap_read(unsigned int channel)
 		break;
 	case SEC_BAT_ADC_CHANNEL_TEMP_AMBIENT:
 		data = 33000;
+		break;
+	case SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE:
+		data = s3c_adc_read(adc_client, 2);
 		break;
 	}
 
@@ -169,9 +174,15 @@ static void sec_bat_initial_check(void)
 	union power_supply_propval value;
 
 	if (POWER_SUPPLY_TYPE_BATTERY < current_cable_type) {
-		value.intval = current_cable_type<<ONLINE_TYPE_MAIN_SHIFT;
-		psy_do_property("battery", set,
-			POWER_SUPPLY_PROP_ONLINE, value);
+		if (current_cable_type == POWER_SUPPLY_TYPE_POWER_SHARING) {
+			value.intval = current_cable_type;
+			psy_do_property("ps", set,
+				POWER_SUPPLY_PROP_ONLINE, value);
+		} else {
+			value.intval = current_cable_type<<ONLINE_TYPE_MAIN_SHIFT;
+			psy_do_property("battery", set,
+				POWER_SUPPLY_PROP_ONLINE, value);
+		}
 	} else {
 		psy_do_property("sec-charger", get,
 				POWER_SUPPLY_PROP_ONLINE, value);
@@ -179,7 +190,7 @@ static void sec_bat_initial_check(void)
 			value.intval =
 				POWER_SUPPLY_TYPE_WPC<<ONLINE_TYPE_MAIN_SHIFT;
 			psy_do_property("battery", set,
-					POWER_SUPPLY_PROP_ONLINE, value);
+				POWER_SUPPLY_PROP_ONLINE, value);
 		}
 	}
 }
@@ -408,6 +419,53 @@ static bool sec_bat_get_temperature_callback(
 
 static bool sec_fg_fuelalert_process(bool is_fuel_alerted) {return true; }
 
+#if defined(CONFIG_CHAGALL)
+static const sec_bat_adc_table_data_t temp_table[] = {
+	{  1100,	 1100 },
+	{  705,	 950 },
+	{  690,	 900 },
+	{  673,	 850 },
+	{  655,	 800 },
+	{  635,	 750 },
+	{  612,	 700 },
+	{  584,	 650 },
+	{  552,	 600 },
+	{  529,	 550 },
+	{  500,	 500 },
+	{  400,	 400 },
+	{  300,	 300 },
+	{  200,	 200 },
+	{  100,	 100 },
+	{  0,	 0 },
+	{ -100,  -100 },
+	{ -200,  -200 },
+	{ -300,  -300 },
+};
+#elif defined(CONFIG_KLIMT)
+static const sec_bat_adc_table_data_t temp_table[] = {
+	{  1100,	 1100 },
+	{  750,  950 },
+	{  725,  900 },
+	{  700,  850 },
+	{  680,  800 },
+	{  660,  750 },
+	{  635,  700 },
+	{  605,  650 },
+	{  570,  600 },
+	{  550,	 557 },
+	{  540,	 540 },
+	{  530,	 530 },
+	{  520,	 520 },
+	{  400,	 400 },
+	{  300,	 300 },
+	{  200,	 200 },
+	{  100,	 100 },
+	{  0,	 0 },
+	{ -100,  -100 },
+	{ -200,  -200 },
+	{ -300,  -300 },
+};
+#else/* N2A */
 static const sec_bat_adc_table_data_t temp_table[] = {
 	{  1100,	 1140 },
 	{  1000,	 1040 },
@@ -429,6 +487,67 @@ static const sec_bat_adc_table_data_t temp_table[] = {
 	{ -100,  -100 },
 	{ -200,  -200 },
 	{ -300,  -300 },
+};
+#endif
+
+/* Data for Chagall */
+static const sec_bat_adc_table_data_t inbat_adc_table[] = {
+	{	3165,	435 },
+	{	3150,	433 },
+	{	3136,	431 },
+	{	3121,	429 },
+	{	3107,	427 },
+	{	3092,	425 },
+	{	3078,	423 },
+	{	3063,	421 },
+	{	3048,	419 },
+	{	3034,	417 },
+	{	3019,	415 },
+	{	3005,	413 },
+	{	2990,	411 },
+	{	2976,	409 },
+	{	2961,	407 },
+	{	2947,	405 },
+	{	2932,	403 },
+	{	2918,	401 },
+	{	2903,	399 },
+	{	2888,	397 },
+	{	2874,	395 },
+	{	2859,	393 },
+	{	2845,	391 },
+	{	2830,	389 },
+	{	2816,	387 },
+	{	2801,	385 },
+	{	2787,	383 },
+	{	2772,	381 },
+	{	2757,	379 },
+	{	2743,	377 },
+	{	2728,	375 },
+	{	2714,	373 },
+	{	2699,	371 },
+	{	2685,	369 },
+	{	2670,	367 },
+	{	2656,	365 },
+	{	2641,	363 },
+	{	2626,	361 },
+	{	2612,	359 },
+	{	2597,	357 },
+	{	2583,	355 },
+	{	2568,	353 },
+	{	2554,	351 },
+	{	2539,	349 },
+	{	2525,	347 },
+	{	2510,	345 },
+	{	2496,	343 },
+	{	2481,	341 },
+	{	2466,	339 },
+	{	2452,	337 },
+	{	2437,	335 },
+	{	2423,	333 },
+	{	2408,	331 },
+	{	2394,	329 },
+	{	2379,	327 },
+	{	2365,	325 },
 };
 
 /* ADC region should be exclusive */
@@ -484,7 +603,7 @@ static void sec_bat_check_batt_id(void)
 
 	ret = s3c_adc_read(adc_client, 4);
 
-#if !defined(CONFIG_CHAGALL)
+#if !defined(CONFIG_CHAGALL) && !defined(CONFIG_KLIMT)
 	/* SDI: +/-700, BYD: +/-1300, ATL: +2000 */
 	if (ret > 1700) {
 		sec_battery_pdata.vendor = "ATL ATL";
@@ -560,6 +679,8 @@ sec_battery_platform_data_t sec_battery_pdata = {
 		SEC_BATTERY_ADC_TYPE_AP,	/* TEMP */
 		SEC_BATTERY_ADC_TYPE_NONE,	/* TEMP_AMB */
 		SEC_BATTERY_ADC_TYPE_AP,	/* FULL_CHECK */
+		SEC_BATTERY_ADC_TYPE_NONE,	/* VOLTAGE_NOW */
+		SEC_BATTERY_ADC_TYPE_AP,	/* INBAT_VOLTAGE */
 	},
 
 	/* Battery */
@@ -578,7 +699,7 @@ sec_battery_platform_data_t sec_battery_pdata = {
 		SEC_BATTERY_CABLE_SOURCE_EXTERNAL |
 		SEC_BATTERY_CABLE_SOURCE_EXTENDED,
 
-	.event_check = false,
+	.event_check = true,
 	.event_waiting_time = 600,
 
 	/* Monitor setting */
@@ -606,6 +727,8 @@ sec_battery_platform_data_t sec_battery_pdata = {
 
 	.temp_check_type = SEC_BATTERY_TEMP_CHECK_TEMP,
 	.temp_check_count = 1,
+
+#if defined(CONFIG_N2A)
 #if defined(CONFIG_TARGET_LOCALE_USA)
 	.temp_high_threshold_event = 510,
 	.temp_high_recovery_event = 460,
@@ -619,7 +742,7 @@ sec_battery_platform_data_t sec_battery_pdata = {
 	.temp_high_recovery_lpm = 460,
 	.temp_low_threshold_lpm = -50,
 	.temp_low_recovery_lpm = 0,
-#elif defined(CONFIG_N2A)
+#else
 	.temp_high_threshold_event = 600,
 	.temp_high_recovery_event = 460,
 	.temp_low_threshold_event = -50,
@@ -631,6 +754,77 @@ sec_battery_platform_data_t sec_battery_pdata = {
 	.temp_high_threshold_lpm = 600,
 	.temp_high_recovery_lpm = 480,
 	.temp_low_threshold_lpm = -50,
+	.temp_low_recovery_lpm = 0,
+#endif
+#elif defined(CONFIG_CHAGALL)/*USA, Canna use csc files for setting*/
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	.temp_high_threshold_event = 600,
+	.temp_high_recovery_event = 460,
+	.temp_low_threshold_event = -50,
+	.temp_low_recovery_event = 0,
+	.temp_high_threshold_normal = 530,
+	.temp_high_recovery_normal = 460,
+	.temp_low_threshold_normal = -50,
+	.temp_low_recovery_normal = 0,
+	.temp_high_threshold_lpm = 530,
+	.temp_high_recovery_lpm = 480,
+	.temp_low_threshold_lpm = 0,
+	.temp_low_recovery_lpm = 30,
+#else
+	.temp_high_threshold_event = 550,
+	.temp_high_recovery_event = 470,
+	.temp_low_threshold_event = -50,
+	.temp_low_recovery_event = 0,
+	.temp_high_threshold_normal = 550,
+	.temp_high_recovery_normal = 470,
+	.temp_low_threshold_normal = -50,
+	.temp_low_recovery_normal = 0,
+	.temp_high_threshold_lpm = 550,
+	.temp_high_recovery_lpm = 470,
+	.temp_low_threshold_lpm = -50,
+	.temp_low_recovery_lpm = 0,
+#endif
+#elif defined(CONFIG_KLIMT)
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	.temp_high_threshold_event = 510,
+	.temp_high_recovery_event = 460,
+	.temp_low_threshold_event = -50,
+	.temp_low_recovery_event = 0,
+	.temp_high_threshold_normal = 510,
+	.temp_high_recovery_normal = 460,
+	.temp_low_threshold_normal = -50,
+	.temp_low_recovery_normal = 0,
+	.temp_high_threshold_lpm = 510,
+	.temp_high_recovery_lpm = 460,
+	.temp_low_threshold_lpm = -50,
+	.temp_low_recovery_lpm = 0,
+#else
+	.temp_high_threshold_event = 530,
+	.temp_high_recovery_event = 460,
+	.temp_low_threshold_event = -50,
+	.temp_low_recovery_event = 0,
+	.temp_high_threshold_normal = 530,
+	.temp_high_recovery_normal = 460,
+	.temp_low_threshold_normal = -50,
+	.temp_low_recovery_normal = 0,
+	.temp_high_threshold_lpm = 530,
+	.temp_high_recovery_lpm = 480,
+	.temp_low_threshold_lpm = -50,
+	.temp_low_recovery_lpm = 0,
+#endif
+#else/*N1, */
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	.temp_high_threshold_event = 500,
+	.temp_high_recovery_event = 480,
+	.temp_low_threshold_event = -20,
+	.temp_low_recovery_event = 0,
+	.temp_high_threshold_normal = 500,
+	.temp_high_recovery_normal = 480,
+	.temp_low_threshold_normal = -20,
+	.temp_low_recovery_normal = 0,
+	.temp_high_threshold_lpm = 500,
+	.temp_high_recovery_lpm = 480,
+	.temp_low_threshold_lpm = -20,
 	.temp_low_recovery_lpm = 0,
 #else
 	.temp_high_threshold_event = 600,
@@ -646,6 +840,14 @@ sec_battery_platform_data_t sec_battery_pdata = {
 	.temp_low_threshold_lpm = -50,
 	.temp_low_recovery_lpm = 0,
 #endif
+#endif
+
+#if defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT)
+	.inbat_adc_table = inbat_adc_table,
+	.inbat_adc_table_size =
+		sizeof(inbat_adc_table)/sizeof(sec_bat_adc_table_data_t),
+#endif
+
 	.full_check_type = SEC_BATTERY_FULLCHARGED_CHGPSY,
 	.full_check_type_2nd = SEC_BATTERY_FULLCHARGED_TIME,
 	.full_check_count = 1,
@@ -768,7 +970,9 @@ void __init exynos5_universal5420_battery_init(void)
 	/* board dependent changes in booting */
 	charger_gpio_init();
 #if defined(CONFIG_CHAGALL)
-	adonis_battery_data[0].Capacity = 0x3CD0;
+	adonis_battery_data[0].Capacity = 0x3CD8;
+#elif defined(CONFIG_KLIMT)
+	adonis_battery_data[0].Capacity = 0x2710;
 #endif
 	platform_add_devices(
 		universal5420_battery_devices,

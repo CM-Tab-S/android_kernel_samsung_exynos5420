@@ -19,6 +19,7 @@
 #include <linux/videodev2.h>
 #include <linux/videodev2_exynos_media.h>
 #include <linux/io.h>
+#include <linux/pm_qos.h>
 #include <media/videobuf2-core.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
@@ -344,10 +345,12 @@ struct sc_dev {
 	struct sc_m2m_device		m2m;
 	int				id;
 	int				ver;
+	int				irq;
 	struct clk			*aclk;
 	struct clk			*pclk;
 	void __iomem			*regs;
 	struct resource			*regs_res;
+	struct pm_qos_request		qos_int;
 	wait_queue_head_t		wait;
 	unsigned long			state;
 	struct vb2_alloc_ctx		*alloc_ctx;

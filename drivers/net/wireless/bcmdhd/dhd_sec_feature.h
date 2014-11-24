@@ -84,7 +84,8 @@
 	defined(CONFIG_MACH_VIENNA_LTE) || defined(CONFIG_MACH_LT03EUR) || \
 	defined(CONFIG_MACH_LT03SKT) || defined(CONFIG_MACH_LT03KTT) || \
 	defined(CONFIG_MACH_LT03LGT) || defined(CONFIG_MACH_PICASSO) || \
-	defined(CONFIG_MACH_V1) || defined(CONFIG_N2A) || defined(CONFIG_V2A)
+	defined(CONFIG_MACH_V1) || defined(CONFIG_N2A) || defined(CONFIG_V2A) || \
+	defined(CONFIG_N1A) || defined(CONFIG_N1A_WIFI)
 #undef USE_CID_CHECK
 #define READ_MACADDR
 #endif	/* CONFIG_MACH_GC1 || CONFIG_MACH_U1_NA_SPR || CONFIG_MACH_VIENNAEUR ||

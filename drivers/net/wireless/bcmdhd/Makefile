@@ -105,6 +105,9 @@ DHDCFLAGS += -DWAIT_DEQUEUE
 # Config PM Control
 DHDCFLAGS += -DCONFIG_CONTROL_PM
 
+# Use Android wake lock mechanism
+DHDCFLAGS += -DCONFIG_HAS_WAKELOCK
+
 # idle count
 DHDCFLAGS += -DDHD_USE_IDLECOUNT
 

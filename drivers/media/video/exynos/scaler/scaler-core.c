@@ -665,6 +665,15 @@ static int sc_v4l2_s_crop(struct file *file, void *fh, struct v4l2_crop *cr)
 			x_align, &cr->c.top, 0, frame->height - cr->c.height,
 			y_align, 0);
 
+	if ((frame->width < (cr->c.left + cr->c.width)) ||
+		(frame->height < (cr->c.top + cr->c.height))) {
+		v4l2_err(&ctx->sc_dev->m2m.v4l2_dev,
+			"Out of crop range: (%d,%d,%d,%d) from %dx%d\n",
+			cr->c.left, cr->c.top, cr->c.width, cr->c.height,
+			frame->width, frame->height);
+		return -EINVAL;
+	}
+
 	frame->crop.top = cr->c.top;
 	frame->crop.left = cr->c.left;
 	frame->crop.height = cr->c.height;
@@ -735,7 +744,7 @@ static void sc_calc_intbufsize(struct sc_dev *sc, struct sc_int_frame *int_frame
 
 	switch (frame->sc_fmt->num_comp) {
 	case 1:
-		frame->addr.ysize = size * frame->sc_fmt->bitperpixel[0];
+		frame->addr.ysize = (size * frame->sc_fmt->bitperpixel[0]) / 8;
 		break;
 	case 2:
 		if (frame->sc_fmt->num_planes == 1) {
@@ -1372,7 +1381,6 @@ static int sc_open(struct file *file)
 		return -ENOMEM;
 	}
 
-	atomic_inc(&sc->m2m.in_use);
 	ctx->sc_dev = sc;
 
 	v4l2_fh_init(&ctx->fh, sc->m2m.vfd);
@@ -1405,7 +1413,11 @@ static int sc_open(struct file *file)
 		goto err_ctx;
 	}
 
+	if (atomic_inc_return(&sc->m2m.in_use) == 1)
+		pm_qos_update_request(&sc->qos_int, 222000);
+
 	pm_runtime_get_sync(sc->dev);
+
 	return 0;
 
 err_ctx:
@@ -1416,7 +1428,6 @@ err_wq:
 err_fh:
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
 	v4l2_fh_exit(&ctx->fh);
-	atomic_dec(&sc->m2m.in_use);
 	kfree(ctx);
 
 	return ret;
@@ -1430,13 +1441,17 @@ static int sc_release(struct file *file)
 	sc_dbg("refcnt= %d", atomic_read(&sc->m2m.in_use));
 
 	pm_runtime_put_sync(sc->dev);
+
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
+
+	if (atomic_dec_and_test(&sc->m2m.in_use))
+		pm_qos_update_request(&sc->qos_int, 0);
+
 	if (ctx->fence_wq)
 		destroy_workqueue(ctx->fence_wq);
 	v4l2_ctrl_handler_free(&ctx->ctrl_handler);
 	v4l2_fh_del(&ctx->fh);
 	v4l2_fh_exit(&ctx->fh);
-	atomic_dec(&sc->m2m.in_use);
 	kfree(ctx);
 
 	return 0;
@@ -2268,6 +2283,8 @@ static int sc_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
+	sc->irq = res->start;
+
 	ret = devm_request_irq(&pdev->dev, res->start, sc_irq_handler, 0,
 			pdev->name, sc);
 	if (ret) {
@@ -2282,20 +2299,23 @@ static int sc_probe(struct platform_device *pdev)
 		sc->aclk = clk_get(sc->dev, "sc-aclk");
 		if (IS_ERR(sc->aclk)) {
 			dev_err(&pdev->dev, "failed to get aclk for scaler\n");
-			return -ENXIO;
+			ret = PTR_ERR(sc->aclk);
+			goto err;
 		}
 
 		sc->pclk = clk_get(sc->dev, "sc-pclk");
 		if (IS_ERR(sc->pclk)) {
 			dev_err(&pdev->dev, "failed to get pclk for scaler\n");
 			clk_put(sc->aclk);
-			return -ENXIO;
+			ret = PTR_ERR(sc->pclk);
+			goto err;
 		}
 	} else {
 		sc->aclk = clk_get(sc->dev, "mscl");
 		if (IS_ERR(sc->aclk)) {
 			dev_err(&pdev->dev, "failed to get clk for scaler\n");
-			return -ENXIO;
+			ret = PTR_ERR(sc->aclk);
+			goto err;
 		}
 	}
 
@@ -2311,7 +2331,7 @@ static int sc_probe(struct platform_device *pdev)
 				clk_put(sc->pclk);
 
 			dev_err(&pdev->dev, "Failed to setup clock hierarch\n");
-			return ret;
+			goto err;
 		}
 	}
 
@@ -2355,6 +2375,8 @@ static int sc_probe(struct platform_device *pdev)
 
 	exynos_sysmmu_set_fault_handler(&pdev->dev, sc_sysmmu_fault_handler);
 
+	pm_qos_add_request(&sc->qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
+
 	dev_info(&pdev->dev, "scaler registered successfully\n");
 
 	return 0;
@@ -2363,13 +2385,16 @@ err_clk:
 	clk_put(sc->aclk);
 	if (sc->pclk)
 		clk_put(sc->pclk);
-
+err:
+	devm_free_irq(sc->dev, sc->irq, sc);
 	return ret;
 }
 
 static int sc_remove(struct platform_device *pdev)
 {
 	struct sc_dev *sc = platform_get_drvdata(pdev);
+
+	pm_qos_remove_request(&sc->qos_int);
 
 	sc->vb2->suspend(sc->alloc_ctx);
 
@@ -2382,6 +2407,8 @@ static int sc_remove(struct platform_device *pdev)
 
 	if (timer_pending(&sc->wdt.timer))
 		del_timer(&sc->wdt.timer);
+
+	devm_free_irq(sc->dev, sc->irq, sc);
 
 	return 0;
 }

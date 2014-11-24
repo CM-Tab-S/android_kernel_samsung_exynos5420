@@ -172,8 +172,6 @@ static struct irq_chip max77803_irq_chip = {
 };
 
 /* WA for V1 MUIC RESET */
-extern void max77888_muic_int_unmask(struct work_struct *work);
-
 /* IRQ THREAD WILL RUN */
 static irqreturn_t muic_reset_irq_thread(int irq, void *data)
 {
@@ -249,6 +247,13 @@ clear_retry:
 	}
 
 	if (irq_src & MAX77803_IRQSRC_MUIC) {
+#ifdef CONFIG_FAST_BOOT
+		if (fake_shut_down) {
+			pr_info("%s An irq is occured during fake shut down\n", __func__);
+			max77803->is_irq_in_fsd = true;
+			return IRQ_HANDLED;
+		}
+#endif
 		/* MUIC INT1 ~ INT3 */
 		max77803_bulk_read(max77803->muic, MAX77803_MUIC_REG_INT1,
 				MAX77803_NUM_IRQ_MUIC_REGS,
@@ -396,11 +401,12 @@ int max77803_irq_init(struct max77803_dev *max77803)
 
 	/* IRQ THREAD WILL RUN */
 	/* WA for V1 MUIC RESET */
-	INIT_DELAYED_WORK(&muic_reset_dwork, max77888_muic_int_unmask);
+	INIT_DELAYED_WORK(&muic_reset_dwork, max77888_muic_reg_restore);
 
 	if (max77803->muic_reset_irq == -1) {
 		pr_info("%s : muic reset pin is NOT allocated\n", __func__);
 	} else {
+		s3c_gpio_setpull(max77803->muic_reset_irq, S3C_GPIO_PULL_NONE);
 		mr_irq = gpio_to_irq(max77803->muic_reset_irq);
 		if (mr_irq < 0) {
 			dev_err(max77803->dev, "Failed to request gpio to IRQ %d\n",

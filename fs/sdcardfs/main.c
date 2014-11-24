@@ -166,7 +166,6 @@ invalid_option:
 static struct dentry *sdcardfs_d_alloc_root(struct super_block *sb)
 {
 	struct dentry *ret = NULL;
-	struct sdcardfs_sb_info *sbi = SDCARDFS_SB(sb);
 
 	if (sb) {
 		static const struct qstr name = {

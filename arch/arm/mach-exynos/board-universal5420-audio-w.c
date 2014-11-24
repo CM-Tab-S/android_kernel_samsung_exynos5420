@@ -98,7 +98,8 @@ static struct arizona_pdata arizona_platform_data = {
 	.max_channels_clocked = {
 	[0] = 2,
 	},
-	.wm5102t_output_pwr = 4
+	.wm5102t_output_pwr = 4,
+	.ultrasonic_response = 1,
 };
 
 #ifdef MODE_WM5102_SPI

@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.c 448685 2014-01-15 05:24:26Z $
+ * $Id: wl_cfgp2p.c 454364 2014-02-10 09:20:25Z $
  *
  */
 #include <typedefs.h>
@@ -2121,11 +2121,21 @@ wl_cfgp2p_set_p2p_noa(struct bcm_cfg80211 *cfg, struct net_device *ndev, char* b
 		if (duration != -1)
 			cfg->p2p->noa.desc[0].duration = duration;
 
-		if (cfg->p2p->noa.desc[0].count != 255) {
+		if (cfg->p2p->noa.desc[0].count < 255 && cfg->p2p->noa.desc[0].count > 1) {
+			cfg->p2p->noa.desc[0].start = 0;
+			dongle_noa.type = WL_P2P_SCHED_TYPE_ABS;
+			dongle_noa.action = WL_P2P_SCHED_ACTION_NONE;
+			dongle_noa.option = WL_P2P_SCHED_OPTION_TSFOFS;
+		}
+		else if (cfg->p2p->noa.desc[0].count == 1) {
 			cfg->p2p->noa.desc[0].start = 200;
 			dongle_noa.type = WL_P2P_SCHED_TYPE_REQ_ABS;
 			dongle_noa.action = WL_P2P_SCHED_ACTION_GOOFF;
 			dongle_noa.option = WL_P2P_SCHED_OPTION_TSFOFS;
+		}
+		else if (cfg->p2p->noa.desc[0].count == 0) {
+			cfg->p2p->noa.desc[0].start = 0;
+			dongle_noa.action = WL_P2P_SCHED_ACTION_RESET;
 		}
 		else {
 			/* Continuous NoA interval. */

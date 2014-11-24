@@ -31,6 +31,7 @@
 #ifdef CONFIG_FB_MIPI_DSIM
 #include <plat/dsim.h>
 #include <plat/mipi_dsi.h>
+#include <plat/regs-mipidsim.h>
 #endif
 
 #ifdef CONFIG_FB_S5P_MDNIE
@@ -366,6 +367,10 @@ static struct lcd_platform_data s6e3fa0_platform_data = {
 #ifdef CONFIG_FB_S5P_MDNIE
 static struct platform_mdnie_data mdnie_data = {
 	.display_type	= -1,
+#if defined(CONFIG_FB_I80IF)
+	.trigger_set	= s3c_fb_enable_trigger_by_mdnie,
+	.fimd1_device	= &s5p_device_fimd1.dev,
+#endif
 };
 
 struct platform_device mdnie_device = {
@@ -573,7 +578,7 @@ static struct mipi_dsim_config dsim_info = {
 	.s = 2,
 
 	/* D-PHY PLL stable time spec :min = 200usec ~ max 400usec */
-	.pll_stable_time = 500,
+	.pll_stable_time = DPHY_PLL_STABLE_TIME,
 
 	.esc_clk = 7 * 1000000, /* escape clk : 7MHz */
 
@@ -606,7 +611,7 @@ static struct mipi_dsim_config dsim_info = {
 	.s = 0,
 
 	/* D-PHY PLL stable time spec :min = 200usec ~ max 400usec */
-	.pll_stable_time = 500,
+	.pll_stable_time = DPHY_PLL_STABLE_TIME,
 
 	.esc_clk = 7 * 1000000, /* escape clk : 7MHz */
 
@@ -634,7 +639,7 @@ static struct mipi_dsim_config dsim_info = {
 	.s = 0,
 
 	/* D-PHY PLL stable time spec :min = 200usec ~ max 400usec */
-	.pll_stable_time = 500,
+	.pll_stable_time = DPHY_PLL_STABLE_TIME,
 
 	.esc_clk = 8 * MHZ, /* escape clk : 8MHz */
 
@@ -667,7 +672,7 @@ static struct mipi_dsim_config dsim_info = {
 	.s = 0,
 
 	/* D-PHY PLL stable time spec :min = 200usec ~ max 400usec */
-	.pll_stable_time = 500,
+	.pll_stable_time = DPHY_PLL_STABLE_TIME,
 
 	.esc_clk = 7 * 1000000, /* escape clk : 7MHz */
 
@@ -687,16 +692,10 @@ static struct s5p_platform_mipi_dsim dsim_platform_data = {
 	.dsim_lcd_config	= &dsim_lcd_info,
 
 	.mipi_power		= mipi_lcd_power_control,
-	.part_reset		= NULL,
 	.init_d_phy		= s5p_dsim_init_d_phy,
 	.get_fb_frame_done	= NULL,
 	.trigger		= NULL,
 
-	/*
-	 * The stable time of needing to write data on SFR
-	 * when the mipi mode becomes LP mode.
-	 */
-	.delay_for_stabilization = 600,
 #if defined(CONFIG_FB_I80IF)
 	.trigger_set = s3c_fb_enable_trigger_by_dsim,
 	.fimd1_device = &s5p_device_fimd1.dev,

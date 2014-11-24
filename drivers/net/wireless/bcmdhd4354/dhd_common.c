@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_common.c 439205 2013-11-26 00:41:18Z $
+ * $Id: dhd_common.c 451346 2014-01-24 22:19:39Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -76,11 +76,6 @@ int dhd_msg_level = DHD_ERROR_VAL;
 
 
 #include <wl_iw.h>
-
-#ifdef WRITE_WLANINFO
-char fw_path[MOD_PARAM_PATHLEN];
-char nv_path[MOD_PARAM_PATHLEN];
-#endif
 
 #ifdef SOFTAP
 char fw_path2[MOD_PARAM_PATHLEN];
@@ -712,6 +707,7 @@ dhd_prec_drop_pkts(dhd_pub_t *dhdp, struct pktq *pq, int prec, f_droppkt_t fn)
 			if (first) {
 				/* No last frag pkt, use prev as last */
 				last = prev;
+				break;
 			} else {
 				first = p;
 				prev_first = prev;
@@ -761,6 +757,8 @@ dhd_prec_drop_pkts(dhd_pub_t *dhdp, struct pktq *pq, int prec, f_droppkt_t fn)
 			q->tail = NULL;
 	} else {
 		PKTSETLINK(prev_first, next);
+		if (!next)
+			q->tail = prev_first;
 	}
 
 	return TRUE;
@@ -1247,7 +1245,7 @@ wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata,
 		/* Ignore the event if NOIF is set */
 		if (ifevent->reserved & WLC_E_IF_FLAGS_BSSCFG_NOIF) {
 			DHD_ERROR(("WLC_E_IF: NO_IF set, event Ignored\r\n"));
-			return (BCME_OK);
+			return (BCME_ERROR);
 		}
 
 #ifdef PROP_TXSTATUS

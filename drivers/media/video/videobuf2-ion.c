@@ -25,8 +25,11 @@
 #include <media/videobuf2-memops.h>
 #include <media/videobuf2-ion.h>
 
+<<<<<<< HEAD
 #include <asm/cacheflush.h>
 
+=======
+>>>>>>> b682b99... importet sammy NJ2
 #include <plat/iovmm.h>
 #include <plat/cpu.h>
 
@@ -54,6 +57,10 @@ struct vb2_ion_buf {
 	unsigned long			size;
 	atomic_t			ref;
 	bool				cached;
+<<<<<<< HEAD
+=======
+	bool				ion;
+>>>>>>> b682b99... importet sammy NJ2
 	struct vb2_ion_cookie		cookie;
 };
 
@@ -187,7 +194,12 @@ void *vb2_ion_private_alloc(void *alloc_ctx, size_t size, int write, int plane)
 
 	size = PAGE_ALIGN(size);
 
+<<<<<<< HEAD
 	flags |= ctx_cached(ctx) ? ION_FLAG_CACHED : 0;
+=======
+	flags |= ctx_cached(ctx) ?
+		ION_FLAG_CACHED | ION_FLAG_CACHED_NEEDS_SYNC : 0;
+>>>>>>> b682b99... importet sammy NJ2
 	buf->handle = ion_alloc(ctx->client, size, ctx->alignment,
 				heapflags, flags);
 	if (IS_ERR(buf->handle)) {
@@ -195,11 +207,36 @@ void *vb2_ion_private_alloc(void *alloc_ctx, size_t size, int write, int plane)
 		goto err_alloc;
 	}
 
+<<<<<<< HEAD
 	buf->cookie.sgt = ion_sg_table(ctx->client, buf->handle);
+=======
+	buf->dma_buf = ion_share_dma_buf(ctx->client, buf->handle);
+	if (IS_ERR(buf->dma_buf)) {
+		ret = PTR_ERR(buf->dma_buf);
+		goto err_share;
+	}
+
+	buf->attachment = dma_buf_attach(buf->dma_buf, ctx->dev);
+	if (IS_ERR(buf->attachment)) {
+		ret = PTR_ERR(buf->attachment);
+		goto err_attach;
+	}
+
+	buf->cookie.sgt = dma_buf_map_attachment(
+				buf->attachment, DMA_BIDIRECTIONAL);
+	if (IS_ERR(buf->cookie.sgt)) {
+		ret = PTR_ERR(buf->cookie.sgt);
+		goto err_map_dmabuf;
+	}
+>>>>>>> b682b99... importet sammy NJ2
 
 	buf->ctx = ctx;
 	buf->size = size;
 	buf->cached = ctx_cached(ctx);
+<<<<<<< HEAD
+=======
+	buf->ion = true;
+>>>>>>> b682b99... importet sammy NJ2
 	buf->direction = write ? DMA_FROM_DEVICE: DMA_TO_DEVICE;
 
 	if (need_kaddr(ctx, size, buf->cached)) {
@@ -213,8 +250,12 @@ void *vb2_ion_private_alloc(void *alloc_ctx, size_t size, int write, int plane)
 
 	mutex_lock(&ctx->lock);
 	if (ctx_iommu(ctx) && !ctx->protected) {
+<<<<<<< HEAD
 		buf->cookie.ioaddr = iovmm_map(ctx->dev,
 					       buf->cookie.sgt->sgl, 0,
+=======
+		buf->cookie.ioaddr = ion_iovmm_map(buf->attachment, 0,
+>>>>>>> b682b99... importet sammy NJ2
 					       buf->size, buf->direction, plane);
 		if (IS_ERR_VALUE(buf->cookie.ioaddr)) {
 			ret = (int)buf->cookie.ioaddr;
@@ -230,6 +271,16 @@ err_ion_map_io:
 	if (buf->kva)
 		ion_unmap_kernel(ctx->client, buf->handle);
 err_map_kernel:
+<<<<<<< HEAD
+=======
+	dma_buf_unmap_attachment(buf->attachment, buf->cookie.sgt,
+				DMA_BIDIRECTIONAL);
+err_map_dmabuf:
+	dma_buf_detach(buf->dma_buf, buf->attachment);
+err_attach:
+	dma_buf_put(buf->dma_buf);
+err_share:
+>>>>>>> b682b99... importet sammy NJ2
 	ion_free(ctx->client, buf->handle);
 err_alloc:
 	kfree(buf);
@@ -250,9 +301,20 @@ void vb2_ion_private_free(void *cookie)
 	ctx = buf->ctx;
 	mutex_lock(&ctx->lock);
 	if (ctx_iommu(ctx) && !ctx->protected)
+<<<<<<< HEAD
 		iovmm_unmap(ctx->dev, buf->cookie.ioaddr);
 	mutex_unlock(&ctx->lock);
 
+=======
+		ion_iovmm_unmap(buf->attachment, buf->cookie.ioaddr);
+	mutex_unlock(&ctx->lock);
+
+	dma_buf_unmap_attachment(buf->attachment, buf->cookie.sgt,
+				DMA_BIDIRECTIONAL);
+	dma_buf_detach(buf->dma_buf, buf->attachment);
+	dma_buf_put(buf->dma_buf);
+
+>>>>>>> b682b99... importet sammy NJ2
 	if (buf->kva)
 		ion_unmap_kernel(ctx->client, buf->handle);
 	ion_free(ctx->client, buf->handle);
@@ -420,13 +482,22 @@ static int vb2_ion_map_dmabuf(void *mem_priv, int plane)
 		return -EINVAL;
 	}
 
+<<<<<<< HEAD
+=======
+	vb2_ion_sync_for_device((void *) &buf->cookie, 0, buf->size, buf->direction);
+
+>>>>>>> b682b99... importet sammy NJ2
 	buf->cookie.offset = 0;
 	/* buf->kva = NULL; */
 
 	mutex_lock(&ctx->lock);
 	if (ctx_iommu(ctx) && !ctx->protected && buf->cookie.ioaddr == 0) {
+<<<<<<< HEAD
 		buf->cookie.ioaddr = iovmm_map(ctx->dev,
 				       buf->cookie.sgt->sgl, 0, buf->size,
+=======
+		buf->cookie.ioaddr = ion_iovmm_map(buf->attachment, 0, buf->size,
+>>>>>>> b682b99... importet sammy NJ2
 				       buf->direction, plane);
 		if (IS_ERR_VALUE(buf->cookie.ioaddr)) {
 			pr_err("buf->cookie.ioaddr is error: %d\n",
@@ -458,6 +529,12 @@ static void vb2_ion_unmap_dmabuf(void *mem_priv)
 
 	dma_buf_unmap_attachment(buf->attachment,
 		buf->cookie.sgt, buf->direction);
+<<<<<<< HEAD
+=======
+
+	vb2_ion_sync_for_cpu((void *) &buf->cookie, 0, buf->size, buf->direction);
+
+>>>>>>> b682b99... importet sammy NJ2
 	buf->cookie.sgt = NULL;
 }
 
@@ -468,7 +545,11 @@ static void vb2_ion_detach_dmabuf(void *mem_priv)
 
 	mutex_lock(&ctx->lock);
 	if (buf->cookie.ioaddr && ctx_iommu(ctx) && !ctx->protected ) {
+<<<<<<< HEAD
 		iovmm_unmap(ctx->dev, buf->cookie.ioaddr);
+=======
+		ion_iovmm_unmap(buf->attachment, buf->cookie.ioaddr);
+>>>>>>> b682b99... importet sammy NJ2
 		buf->cookie.ioaddr = 0;
 	}
 	mutex_unlock(&ctx->lock);
@@ -490,7 +571,11 @@ static void *vb2_ion_attach_dmabuf(void *alloc_ctx, struct dma_buf *dbuf,
 	struct dma_buf_attachment *attachment;
 
 	if (dbuf->size < size) {
+<<<<<<< HEAD
 		pr_err("dbuf->size(%d) is smaller than size(%ld)\n",
+=======
+		WARN(1, "dbuf->size(%d) is smaller than size(%ld)\n",
+>>>>>>> b682b99... importet sammy NJ2
 				dbuf->size, size);
 		return ERR_PTR(-EFAULT);
 	}
@@ -513,6 +598,10 @@ static void *vb2_ion_attach_dmabuf(void *alloc_ctx, struct dma_buf *dbuf,
 	buf->direction = write ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
 	buf->size = size;
 	buf->dma_buf = dbuf;
+<<<<<<< HEAD
+=======
+	buf->ion = true;
+>>>>>>> b682b99... importet sammy NJ2
 	buf->attachment = attachment;
 
 	return buf;
@@ -767,17 +856,32 @@ static struct dma_buf *vb2_ion_get_user_pages(unsigned long start,
 		sg_set_page(sgl, pages[0],
 				(nr_pages == 1) ? len : PAGE_SIZE - start_off,
 				start_off);
+<<<<<<< HEAD
+=======
+		sg_dma_address(sgl) = page_to_phys(sg_page(sgl));
+>>>>>>> b682b99... importet sammy NJ2
 
 		sgl = sg_next(sgl);
 
 		/* nr_pages == 1 if sgl == NULL here */
 		for (i = 1; i < (nr_pages - 1); i++) {
 			sg_set_page(sgl, pages[i], PAGE_SIZE, 0);
+<<<<<<< HEAD
 			sgl = sg_next(sgl);
 		}
 
 		if (sgl)
 			sg_set_page(sgl, pages[i], last_size, 0);
+=======
+			sg_dma_address(sgl) = page_to_phys(sg_page(sgl));
+			sgl = sg_next(sgl);
+		}
+
+		if (sgl) {
+			sg_set_page(sgl, pages[i], last_size, 0);
+			sg_dma_address(sgl) = page_to_phys(sg_page(sgl));
+		}
+>>>>>>> b682b99... importet sammy NJ2
 
 		priv->is_pfnmap = false;
 	}
@@ -838,6 +942,10 @@ static void *vb2_ion_get_userptr(void *alloc_ctx, unsigned long vaddr,
 		buf->dma_buf = vma->vm_file->private_data; /* ad-hoc */
 		buf->cookie.offset = vaddr - vma->vm_start;
 		get_dma_buf(buf->dma_buf);
+<<<<<<< HEAD
+=======
+		buf->ion = true;
+>>>>>>> b682b99... importet sammy NJ2
 	}
 
 	buf->ctx = ctx;
@@ -892,6 +1000,7 @@ static void *vb2_ion_get_userptr(void *alloc_ctx, unsigned long vaddr,
 	else
 		buf->cached = true;
 
+<<<<<<< HEAD
 	if (need_kaddr(ctx, size, buf->cached)) {
 		 /* ION maps entire buffer at once in the kernel space */
 		p_ret = (void *)dma_buf_begin_cpu_access(buf->dma_buf,
@@ -923,6 +1032,10 @@ err_kmap:
 err_begin_cpu:
 	if (ctx_iommu(ctx))
 		iovmm_unmap(ctx->dev, buf->cookie.ioaddr);
+=======
+	return buf;
+
+>>>>>>> b682b99... importet sammy NJ2
 err_iovmm:
 	dma_buf_unmap_attachment(buf->attachment, buf->cookie.sgt,
 				buf->direction);
@@ -976,6 +1089,7 @@ const struct vb2_mem_ops vb2_ion_memops = {
 };
 EXPORT_SYMBOL_GPL(vb2_ion_memops);
 
+<<<<<<< HEAD
 typedef void (*dma_sync_func)(struct device *, struct scatterlist *, int,
 				   enum dma_data_direction);
 
@@ -1072,12 +1186,37 @@ void vb2_ion_sync_for_device(void *cookie, off_t offset, size_t size,
 		}
 	}
 #endif
+=======
+void vb2_ion_sync_for_device(void *cookie, off_t offset, size_t size,
+						enum dma_data_direction dir)
+{
+	struct vb2_ion_buf *buf = container_of(cookie,
+					struct vb2_ion_buf, cookie);
+
+	dev_dbg(buf->ctx->dev, "syncing for device, dmabuf: %p, kva: %p, "
+		"size: %d, dir: %d\n", buf->dma_buf, buf->kva, size, dir);
+
+	if (buf->kva) {
+		if ((offset + size) > buf->size)
+			size -= (offset + size) - buf->size;
+		exynos_ion_sync_vaddr_for_device(buf->ctx->dev,
+						buf->kva, size, offset, dir);
+	} else if (buf->dma_buf && buf->ion) {
+		exynos_ion_sync_dmabuf_for_device(buf->ctx->dev,
+						buf->dma_buf, size, dir);
+	} else {
+		if (buf->cached)
+			exynos_ion_sync_sg_for_device(buf->ctx->dev,
+						buf->cookie.sgt, dir);
+	}
+>>>>>>> b682b99... importet sammy NJ2
 }
 EXPORT_SYMBOL_GPL(vb2_ion_sync_for_device);
 
 void vb2_ion_sync_for_cpu(void *cookie, off_t offset, size_t size,
 						enum dma_data_direction dir)
 {
+<<<<<<< HEAD
 	struct vb2_ion_buf *buf =
 			container_of(cookie, struct vb2_ion_buf, cookie);
 
@@ -1125,21 +1264,46 @@ void vb2_ion_sync_for_cpu(void *cookie, off_t offset, size_t size,
 		}
 	}
 #endif
+=======
+	struct vb2_ion_buf *buf = container_of(cookie,
+					struct vb2_ion_buf, cookie);
+
+	dev_dbg(buf->ctx->dev, "syncing for cpu, dmabuf: %p, kva: %p, "
+		"size: %d, dir: %d\n", buf->dma_buf, buf->kva, size, dir);
+
+	if (buf->kva) {
+		if ((offset + size) > buf->size)
+			size -= (offset + size) - buf->size;
+		exynos_ion_sync_vaddr_for_cpu(buf->ctx->dev,
+						buf->kva, size, offset, dir);
+	} else if (buf->dma_buf && buf->ion) {
+		exynos_ion_sync_dmabuf_for_cpu(buf->ctx->dev,
+						buf->dma_buf, size, dir);
+	} else {
+		dma_sync_sg_for_cpu(buf->ctx->dev, buf->cookie.sgt->sgl,
+				buf->cookie.sgt->orig_nents, dir);
+	}
+>>>>>>> b682b99... importet sammy NJ2
 }
 EXPORT_SYMBOL_GPL(vb2_ion_sync_for_cpu);
 
 int vb2_ion_buf_prepare(struct vb2_buffer *vb)
 {
 	int i;
+<<<<<<< HEAD
 	size_t size = 0;
 	enum dma_data_direction dir;
 	bool nokaddr = false;
+=======
+	enum dma_data_direction dir;
+>>>>>>> b682b99... importet sammy NJ2
 
 	dir = V4L2_TYPE_IS_OUTPUT(vb->v4l2_buf.type) ?
 					DMA_TO_DEVICE : DMA_FROM_DEVICE;
 
 	for (i = 0; i < vb->num_planes; i++) {
 		struct vb2_ion_buf *buf = vb->planes[i].mem_priv;
+<<<<<<< HEAD
 
 		if (buf->attachment && !buf->vma) /* dma-buf type */
 			return 0;
@@ -1219,6 +1383,14 @@ outercache:
 		}
 	}
 #endif
+=======
+		if (buf->dma_buf && !buf->vma) /* dmabuf type */
+			return 0;
+		vb2_ion_sync_for_device((void *) &buf->cookie, 0,
+							buf->size, dir);
+	}
+
+>>>>>>> b682b99... importet sammy NJ2
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vb2_ion_buf_prepare);
@@ -1226,13 +1398,18 @@ EXPORT_SYMBOL_GPL(vb2_ion_buf_prepare);
 int vb2_ion_buf_finish(struct vb2_buffer *vb)
 {
 	int i;
+<<<<<<< HEAD
 	size_t size = 0;
 	enum dma_data_direction dir;
 	bool nokaddr = false;
+=======
+	enum dma_data_direction dir;
+>>>>>>> b682b99... importet sammy NJ2
 
 	dir = V4L2_TYPE_IS_OUTPUT(vb->v4l2_buf.type) ?
 					DMA_TO_DEVICE : DMA_FROM_DEVICE;
 
+<<<<<<< HEAD
 	if (dir == DMA_TO_DEVICE)
 		return 0;
 
@@ -1314,6 +1491,16 @@ outercache:
 		}
 	}
 #endif
+=======
+	for (i = 0; i < vb->num_planes; i++) {
+		struct vb2_ion_buf *buf = vb->planes[i].mem_priv;
+		if (buf->dma_buf && !buf->vma) /* dmabuf type */
+			return 0;
+		vb2_ion_sync_for_cpu((void *) &buf->cookie, 0,
+						buf->size, dir);
+	}
+
+>>>>>>> b682b99... importet sammy NJ2
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vb2_ion_buf_finish);
@@ -1353,6 +1540,11 @@ int vb2_ion_attach_iommu(void *alloc_ctx)
 }
 EXPORT_SYMBOL_GPL(vb2_ion_attach_iommu);
 
+<<<<<<< HEAD
 MODULE_AUTHOR("Jonghun,	Han <jonghun.han@samsung.com>");
+=======
+MODULE_AUTHOR("Cho KyongHo <pullip.cho@samsung.com>");
+MODULE_AUTHOR("Jinsung Yang <jsgood.yang@samsung.com>");
+>>>>>>> b682b99... importet sammy NJ2
 MODULE_DESCRIPTION("Android ION allocator handling routines for videobuf2");
 MODULE_LICENSE("GPL");

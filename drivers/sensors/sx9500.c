@@ -55,16 +55,16 @@
 #define REF_SENSOR               1
 #define CSX_STATUS_REG           SX9500_TCHCMPSTAT_TCHSTAT0_FLAG
 
-#define LIMIT_PROXOFFSET                2550 /* 30pF */
+#define LIMIT_PROXOFFSET                3481 /* 40pF */
 #define LIMIT_PROXUSEFUL                10000
-#define STANDARD_CAP_MAIN               300000
+#define STANDARD_CAP_MAIN               400000
 
 #define DEFAULT_INIT_TOUCH_THRESHOLD    3000
 #define DEFAULT_NORMAL_TOUCH_THRESHOLD  17
 
-#define	TOUCH_CHECK_REF_AMB      0 // 44523
-#define	TOUCH_CHECK_SLOPE        0 // 50
-#define	TOUCH_CHECK_MAIN_AMB     0 // 151282
+#define TOUCH_CHECK_REF_AMB      0 /* 44523 */
+#define TOUCH_CHECK_SLOPE        0 /* 50 */
+#define TOUCH_CHECK_MAIN_AMB     0 /* 151282 */
 
 /* CS0, CS1, CS2, CS3 */
 #define TOTAL_BOTTON_COUNT       1
@@ -86,17 +86,19 @@ struct sx9500_p {
 	bool calSuccessed;
 	bool flagDataSkip;
 	u8 touchTh;
-	u8 releaseTh;
 	int initTh;
 	int calData[3];
 	int touchMode;
-
 	int irq;
 	int gpioNirq;
 	int state[TOTAL_BOTTON_COUNT];
-
 	atomic_t enable;
 };
+
+#if defined(CONFIG_TARGET_LOCALE_USA) && defined(CONFIG_CHAGALL_LTE)
+#define SX9500_NORMAL_TOUCH_CABLE_THRESHOLD	20
+extern bool is_cable_attached;
+#endif
 
 static int sx9500_get_nirq_state(struct sx9500_p *data)
 {
@@ -121,7 +123,7 @@ static int sx9500_i2c_write(struct sx9500_p *data, u8 reg_addr, u8 buf)
 	if (ret < 0)
 		pr_err("[SX9500]: %s - i2c write error %d\n", __func__, ret);
 
-	return 0;
+	return ret;
 }
 
 static int sx9500_i2c_read(struct sx9500_p *data, u8 reg_addr, u8 *buf)
@@ -149,9 +151,12 @@ static int sx9500_i2c_read(struct sx9500_p *data, u8 reg_addr, u8 *buf)
 static u8 sx9500_read_irqstate(struct sx9500_p *data)
 {
 	u8 val = 0;
+	u8 ret;
 
-	if (sx9500_i2c_read(data, SX9500_IRQSTAT_REG, &val) >= 0)
-		return (val & 0x00FF);
+	if (sx9500_i2c_read(data, SX9500_IRQSTAT_REG, &val) >= 0) {
+		ret = val & 0x00FF;
+		return ret;
+	}
 
 	return 0;
 }
@@ -176,7 +181,7 @@ static void sx9500_initialize_chip(struct sx9500_p *data)
 {
 	int cnt = 0;
 
-	while((sx9500_get_nirq_state(data) == 0) && (cnt++ < 10)) {
+	while ((sx9500_get_nirq_state(data) == 0) && (cnt++ < 10)) {
 		sx9500_read_irqstate(data);
 		msleep(20);
 	}
@@ -198,14 +203,26 @@ static int sx9500_set_offset_calibration(struct sx9500_p *data)
 
 static void send_event(struct sx9500_p *data, int cnt, u8 state)
 {
+	u8 buf;
+#if defined(CONFIG_TARGET_LOCALE_USA) && defined(CONFIG_CHAGALL_LTE)
+	if (is_cable_attached == true) {
+		buf = SX9500_NORMAL_TOUCH_CABLE_THRESHOLD;
+		pr_info("[SX9500]: %s - cable connected\n", __func__);
+	} else {
+		buf = data->touchTh;
+	}
+#else
+	buf = data->touchTh;
+#endif
+
 	if (state == ACTIVE) {
 		data->state[cnt] = ACTIVE;
-		sx9500_i2c_write(data, SX9500_CPS_CTRL6_REG, data->releaseTh);
+		sx9500_i2c_write(data, SX9500_CPS_CTRL6_REG, buf);
 		pr_info("[SX9500]: %s - %d button touched\n", __func__, cnt);
 	} else {
 		data->touchMode = NORMAL_TOUCH_MODE;
 		data->state[cnt] = IDLE;
-		sx9500_i2c_write(data, SX9500_CPS_CTRL6_REG, data->touchTh);
+		sx9500_i2c_write(data, SX9500_CPS_CTRL6_REG, buf);
 		pr_info("[SX9500]: %s - %d button released\n", __func__, cnt);
 	}
 
@@ -213,20 +230,20 @@ static void send_event(struct sx9500_p *data, int cnt, u8 state)
 		return;
 
 	switch (cnt) {
-		case 0:
-			if (state == ACTIVE)
-				input_report_rel(data->input, REL_MISC, 1);
-			else
-				input_report_rel(data->input, REL_MISC, 2);
-			break;
-		case 1:
-		case 2:
-		case 3:
-			pr_info("[SX9500]: %s - There is no defined event for"
-				" button %d.\n", __func__, cnt);
-			break;
-		default:
-			break;
+	case 0:
+		if (state == ACTIVE)
+			input_report_rel(data->input, REL_MISC, 1);
+		else
+			input_report_rel(data->input, REL_MISC, 2);
+		break;
+	case 1:
+	case 2:
+	case 3:
+		pr_info("[SX9500]: %s - There is no defined event for" \
+			" button %d.\n", __func__, cnt);
+		break;
+	default:
+		break;
 	}
 
 	input_sync(data->input);
@@ -240,13 +257,29 @@ static void sx9500_display_data_reg(struct sx9500_p *data)
 	for (i = 0; i < TOTAL_BOTTON_COUNT; i++) {
 		sx9500_i2c_write(data, SX9500_REGSENSORSELECT, i);
 		pr_info("[SX9500]: ############# %d button #############\n", i);
-		for (reg = SX9500_REGUSEMSB; reg <= SX9500_REGOFFSETLSB; reg++)
-		{
+		for (reg = SX9500_REGUSEMSB;
+			reg <= SX9500_REGOFFSETLSB; reg++) {
 			sx9500_i2c_read(data, reg, &val);
 			pr_info("[SX9500]: %s - Register(0x%2x) data(0x%2x)\n",
 				__func__, reg, val);
 		}
 	}
+}
+
+static s32 sx9500_get_init_threshold(struct sx9500_p *data)
+{
+	s32 threshold;
+
+	/* Because the STANDARD_CAP_MAIN was 300,000 in the previous patch,
+	 * the exception code is added. It will be removed later */
+	if (data->calData[0] == 0)
+		threshold = STANDARD_CAP_MAIN + data->initTh;
+	else if (data->calData[0] > 100000)
+		threshold = data->initTh + data->calData[0];
+	else
+		threshold = 300000 + data->initTh + data->calData[0];
+
+	return threshold;
 }
 
 static s32 sx9500_get_capMain(struct sx9500_p *data)
@@ -276,7 +309,7 @@ static s32 sx9500_get_capMain(struct sx9500_p *data)
 	lsByte = (u8)(offset - (((u16)msByte) << 6));
 
 	capMain = 2 * (((s32)msByte * 3600) + ((s32)lsByte * 225)) +
-		(((s32)useful * 50000) / (8 * 65536) );
+		(((s32)useful * 50000) / (8 * 65536));
 
 	/* Calculate out the Reference Cap information */
 	sx9500_i2c_write(data, SX9500_REGSENSORSELECT, REF_SENSOR);
@@ -300,7 +333,7 @@ static s32 sx9500_get_capMain(struct sx9500_p *data)
 	lsByte = (u8)(offset - (((u16)msByte) << 6));
 
 	capRef = 2 * (((s32)msByte * 3600) + ((s32)lsByte * 225)) +
-		(((s32)capRef * 50000) / (8 * 65536) );
+		(((s32)capRef * 50000) / (8 * 65536));
 
 	capRef = (capRef - TOUCH_CHECK_REF_AMB) *
 		TOUCH_CHECK_SLOPE + TOUCH_CHECK_MAIN_AMB;
@@ -316,10 +349,10 @@ static s32 sx9500_get_capMain(struct sx9500_p *data)
 
 static void sx9500_touchCheckWithRefSensor(struct sx9500_p *data)
 {
-	s32 capMain;
+	s32 capMain, threshold;
 	int cnt = 0;
-	s32 threshold = STANDARD_CAP_MAIN + data->initTh + data->calData[0];
 
+	threshold = sx9500_get_init_threshold(data);
 	capMain = sx9500_get_capMain(data);
 
 	if (data->state[cnt] == IDLE) {
@@ -500,7 +533,7 @@ static int sx9500_do_calibrate(struct sx9500_p *data, bool do_calib)
 	}
 
 	capMain = sx9500_get_capMain(data);
-	data->calData[0] = capMain - STANDARD_CAP_MAIN;
+	data->calData[0] = capMain;
 
 	if (atomic_read(&data->enable) == OFF)
 		sx9500_set_mode(data, SX9500_MODE_SLEEP);
@@ -557,7 +590,7 @@ static ssize_t sx9500_set_offset_calibration_store(struct device *dev,
 	unsigned long val;
 	struct sx9500_p *data = dev_get_drvdata(dev);
 
-	if (strict_strtoul(buf, 10, &val)) {
+	if (kstrtoul(buf, 10, &val)) {
 		pr_err("[SX9500]: %s - Invalid Argument\n", __func__);
 		return -EINVAL;
 	}
@@ -690,7 +723,7 @@ static ssize_t sx9500_threshold_show(struct device *dev,
 
 	/* It's for init touch */
 	return snprintf(buf, PAGE_SIZE, "%d\n",
-			STANDARD_CAP_MAIN + data->initTh + data->calData[0]);
+			sx9500_get_init_threshold(data));
 }
 
 static ssize_t sx9500_threshold_store(struct device *dev,
@@ -700,14 +733,13 @@ static ssize_t sx9500_threshold_store(struct device *dev,
 	struct sx9500_p *data = dev_get_drvdata(dev);
 
 	/* It's for normal touch */
-	if (strict_strtoul(buf, 10, &val)) {
+	if (kstrtoul(buf, 10, &val)) {
 		pr_err("[SX9500]: %s - Invalid Argument\n", __func__);
 		return -EINVAL;
 	}
 
 	pr_info("[SX9500]: %s - normal threshold %lu\n", __func__, val);
-	data->touchTh = data->releaseTh = (u8)val;
-
+	data->touchTh = (u8)val;
 	return count;
 }
 
@@ -885,9 +917,9 @@ static void sx9500_touch_process(struct sx9500_p *data)
 {
 	u8 status = 0;
 	int cnt;
-	s32 capMain;
-	s32 threshold = STANDARD_CAP_MAIN + data->initTh + data->calData[0];
+	s32 capMain, threshold;
 
+	threshold = sx9500_get_init_threshold(data);
 	capMain = sx9500_get_capMain(data);
 
 	sx9500_i2c_read(data, SX9500_TCHCMPSTAT_REG, &status);
@@ -1021,19 +1053,6 @@ static int sx9500_setup_pin(struct sx9500_p *data)
 		return ret;
 	}
 
-	data->irq = gpio_to_irq(data->gpioNirq);
-
-	/* initailize interrupt reporting */
-	ret = request_threaded_irq(data->irq, NULL, sx9500_interrupt_thread,
-			IRQF_TRIGGER_FALLING , "sx9500_irq", data);
-	if (ret < 0) {
-		pr_err("[SX9500]: %s - failed to set request_threaded_irq %d"
-			" as returning (%d)\n", __func__, data->irq, ret);
-		gpio_free(data->gpioNirq);
-		return ret;
-	}
-
-	disable_irq(data->irq);
 	return 0;
 }
 
@@ -1055,7 +1074,6 @@ static void sx9500_initialize_variable(struct sx9500_p *data)
 		__func__, data->initTh);
 
 	data->touchTh = (u8)CONFIG_SENSORS_SX9500_NORMAL_TOUCH_THRESHOLD;
-	data->releaseTh = (u8)CONFIG_SENSORS_SX9500_NORMAL_TOUCH_THRESHOLD;
 	pr_info("[SX9500]: %s - Normal Touch Threshold : %u\n",
 		__func__, data->touchTh);
 }
@@ -1112,15 +1130,34 @@ static int sx9500_probe(struct i2c_client *client,
 	INIT_DELAYED_WORK(&data->irq_work, sx9500_irq_work_func);
 	mutex_init(&data->mode_mutex);
 
+	data->irq = gpio_to_irq(data->gpioNirq);
+
+	/* initailize interrupt reporting */
+	ret = request_threaded_irq(data->irq, NULL, sx9500_interrupt_thread,
+			IRQF_TRIGGER_FALLING , "sx9500_irq", data);
+	if (ret < 0) {
+		pr_err("[SX9500]: %s - failed to set request_threaded_irq %d" \
+			" as returning (%d)\n", __func__, data->irq, ret);
+		goto exit_request_threaded_irq;
+	}
+
+	disable_irq(data->irq);
+
 	schedule_delayed_work(&data->init_work, msecs_to_jiffies(300));
 
 	pr_info("[SX9500]: %s - Probe done!\n", __func__);
 
 	return 0;
 
+exit_request_threaded_irq:
+	mutex_destroy(&data->mode_mutex);
+	sensors_unregister(data->factory_device, sensor_attrs);
+	sensors_remove_symlink(&data->input->dev.kobj, data->input->name);
+	wake_lock_destroy(&data->grip_wake_lock);
+	sysfs_remove_group(&data->input->dev.kobj, &sx9500_attribute_group);
+	input_unregister_device(data->input);
 exit_input_init:
 exit_chip_reset:
-	free_irq(data->irq, data);
 	gpio_free(data->gpioNirq);
 exit_setup_pin:
 	kfree(data);

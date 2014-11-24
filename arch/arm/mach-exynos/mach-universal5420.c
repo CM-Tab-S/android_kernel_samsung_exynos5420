@@ -238,6 +238,18 @@ static void __init exynos_reserve_mem(void)
 			}
 		},
 #endif
+<<<<<<< HEAD
+=======
+#ifdef CONFIG_ION_EXYNOS_MEMSIZE_SECDMA
+		{
+			.name = "drm_secdma",
+			.size = CONFIG_ION_EXYNOS_MEMSIZE_SECDMA * SZ_1K,
+			{
+				.alignment = SZ_1M,
+			}
+		},
+#endif
+>>>>>>> b682b99... importet sammy NJ2
 		{
 			.size = 0
 		},
@@ -253,12 +265,20 @@ static void __init exynos_reserve_mem(void)
 		"ion-exynos/mfc_input=drm_mfc_input;"
 		"ion-exynos/mfc_fw=drm_mfc_fw;"
 		"ion-exynos/sectbl=drm_sectbl;"
+<<<<<<< HEAD
+=======
+		"ion-exynos/secdma=drm_secdma;"
+>>>>>>> b682b99... importet sammy NJ2
 		"s5p-smem/mfc_sh=drm_mfc_sh;"
 		"s5p-smem/g2d_wfd=drm_g2d_wfd;"
 		"s5p-smem/video=drm_video;"
 		"s5p-smem/mfc_input=drm_mfc_input;"
 		"s5p-smem/mfc_fw=drm_mfc_fw;"
 		"s5p-smem/sectbl=drm_sectbl;"
+<<<<<<< HEAD
+=======
+		"s5p-smem/secdma=drm_secdma;"
+>>>>>>> b682b99... importet sammy NJ2
 #endif
 #ifdef CONFIG_BL_SWITCHER
 		"b.L_mem=bl_mem;"

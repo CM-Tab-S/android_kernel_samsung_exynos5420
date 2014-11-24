@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_custom_exynos.c 447781 2014-01-10 06:41:18Z $
+ * $Id: dhd_custom_exynos.c 454079 2014-02-07 11:37:39Z $
  */
 #include <linux/device.h>
 #include <linux/gpio.h>
@@ -47,6 +47,7 @@
 #include <linux/wlan_plat.h>
 
 #include <mach/gpio.h>
+#include <mach/irqs.h>
 #include <linux/sec_sysfs.h>
 
 #include <plat/gpio-cfg.h>
@@ -167,6 +168,13 @@ static int dhd_init_wlan_mem(void)
 	return 0;
 
 err_mem_alloc:
+	if(wlan_static_scan_buf0)
+	 kfree(wlan_static_scan_buf0);
+	if(wlan_static_scan_buf1)
+	 kfree(wlan_static_scan_buf1);
+	if(wlan_static_dhd_info_buf)
+	 kfree(wlan_static_dhd_info_buf);
+
 	pr_err("Failed to mem_alloc for WLAN\n");
 	for (j = 0; j < i; j++)
 		kfree(wlan_mem_array[j].mem_ptr);
@@ -270,6 +278,29 @@ int __init dhd_wlan_init_gpio(void)
 	wlan_host_wake_irq = gpio_to_irq(wlan_host_wake_up);
 
 	return 0;
+}
+
+void interrupt_set_cpucore(int set)
+{
+	printk(KERN_INFO "%s: set: %d\n", __FUNCTION__, set);
+	if (set)
+	{
+#if defined(CONFIG_MACH_UNIVERSAL5422)
+		irq_set_affinity(EXYNOS5_IRQ_HSMMC1, cpumask_of(DPC_CPUCORE));
+		irq_set_affinity(EXYNOS_IRQ_EINT16_31, cpumask_of(DPC_CPUCORE));
+#elif defined(CONFIG_MACH_UNIVERSAL5430)
+		irq_set_affinity(IRQ_SPI(226), cpumask_of(DPC_CPUCORE));
+		irq_set_affinity(IRQ_SPI(2), cpumask_of(DPC_CPUCORE));
+#endif
+	} else {
+#if defined(CONFIG_MACH_UNIVERSAL5422)
+		irq_set_affinity(EXYNOS5_IRQ_HSMMC1, cpumask_of(PRIMARY_CPUCORE));
+		irq_set_affinity(EXYNOS_IRQ_EINT16_31, cpumask_of(PRIMARY_CPUCORE));
+#elif defined(CONFIG_MACH_UNIVERSAL5430)
+		irq_set_affinity(IRQ_SPI(226), cpumask_of(PRIMARY_CPUCORE));
+		irq_set_affinity(IRQ_SPI(2), cpumask_of(PRIMARY_CPUCORE));
+#endif
+	}
 }
 
 struct resource dhd_wlan_resources = {

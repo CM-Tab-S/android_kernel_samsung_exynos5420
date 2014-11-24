@@ -114,6 +114,11 @@ static const u8 tuning_blk_pattern_8bit[] = {
 #define DRTO		200
 #define DRTO_MON_PERIOD	50
 
+<<<<<<< HEAD
+=======
+void dw_mci_runtime_timing_change(struct dw_mci *host, unsigned int qos_level);
+
+>>>>>>> b682b99... importet sammy NJ2
 /**
  * struct dw_mci_slot - MMC slot state
  * @mmc: The mmc_host representing this slot.
@@ -145,6 +150,39 @@ struct dw_mci_slot {
 	int			last_detect_state;
 };
 
+<<<<<<< HEAD
+=======
+#if defined(CONFIG_MMC_DW_CMD_LOGGING)
+#define DWMCI_LOG_MAX	128	/* 0x80 */
+#define DWMCI_IDX_MAX	3	/* 0 : eMMC, 1 : SDIO, 2 : SD */
+struct dw_mci_cmd_log {
+	u8	index;		/* TBD : It can be changed */
+	u8	cmd;
+	u32	arg;
+	u16	data_size;
+	u64	send_time;
+};
+
+static struct dw_mci_cmd_log dw_mci_cmd_logs[DWMCI_IDX_MAX][DWMCI_LOG_MAX] __cacheline_aligned;
+
+static void dw_mci_store_cmd_log(struct mmc_command *cmd, unsigned int count, unsigned int host_idx)
+{
+	int cpu = raw_smp_processor_id();
+
+	dw_mci_cmd_logs[host_idx][count].index = count & 0xff;
+
+	dw_mci_cmd_logs[host_idx][count].cmd = cmd->opcode;
+	dw_mci_cmd_logs[host_idx][count].arg = cmd->arg;
+	if (cmd->data)
+		dw_mci_cmd_logs[host_idx][count].data_size = cmd->data->blocks;
+	else
+		dw_mci_cmd_logs[host_idx][count].data_size = 0;
+
+	dw_mci_cmd_logs[host_idx][count].send_time = cpu_clock(cpu);
+}
+#endif
+
+>>>>>>> b682b99... importet sammy NJ2
 static void dw_mci_ciu_clk_en(struct dw_mci *host)
 {
 	if (!atomic_read(&host->cclk_cnt)) {
@@ -196,9 +234,32 @@ static void dw_mci_qos_exit(struct dw_mci *host)
 
 static void dw_mci_qos_get(struct dw_mci *host)
 {
+<<<<<<< HEAD
 	if (delayed_work_pending(&host->qos_work))
 		cancel_delayed_work_sync(&host->qos_work);
 	pm_qos_update_request(&host->pm_qos_int, host->pdata->qos_int_level);
+=======
+	unsigned int qos_value = 0;
+
+	if (delayed_work_pending(&host->qos_work))
+		cancel_delayed_work_sync(&host->qos_work);
+
+	if (host->pdata->int_camera) {
+		qos_value = pm_qos_request(PM_QOS_DEVICE_THROUGHPUT);
+
+		if (host->pdata->int_camera <= qos_value)
+			qos_value = host->pdata->int_camera;
+		else
+			qos_value = host->pdata->qos_int_level;
+
+		if (host->pdata->tuned &&
+				(host->pdata->io_mode == MMC_TIMING_MMC_HS200_DDR))
+			dw_mci_runtime_timing_change(host, qos_value);
+	} else
+		qos_value = host->pdata->qos_int_level;
+
+	pm_qos_update_request(&host->pm_qos_int, qos_value);
+>>>>>>> b682b99... importet sammy NJ2
 }
 
 static void dw_mci_qos_put(struct dw_mci *host)
@@ -546,6 +607,12 @@ static void dw_mci_start_command(struct dw_mci *host,
 {
 	struct mmc_data *data;
 	u32 mask;
+<<<<<<< HEAD
+=======
+#if defined(CONFIG_MMC_DW_CMD_LOGGING)
+	unsigned int count;
+#endif
+>>>>>>> b682b99... importet sammy NJ2
 
 	host->cmd = cmd;
 	data = cmd->data;
@@ -569,6 +636,19 @@ static void dw_mci_start_command(struct dw_mci *host,
 	wmb();
 
 	mci_writel(host, CMD, cmd_flags | SDMMC_CMD_START);
+
+#if defined(CONFIG_MMC_DW_CMD_LOGGING)
+	if (host->pdata->dw_mci_cmd_logging &&
+			(cmd->opcode == MMC_WRITE_BLOCK || cmd->opcode == MMC_WRITE_MULTIPLE_BLOCK ||
+			 cmd->opcode == MMC_READ_SINGLE_BLOCK || cmd->opcode == MMC_READ_MULTIPLE_BLOCK ||
+			 cmd->opcode == MMC_ERASE ||
+			 cmd->opcode == MMC_GO_IDLE_STATE)) {
+		count = atomic_inc_return(&host->pdata->log_count) & (DWMCI_LOG_MAX - 1);
+		dw_mci_store_cmd_log(cmd, count,
+				host->cur_slot ? host->cur_slot->mmc->index :
+				host->pdata ? (host->pdata->cd_type - DW_MCI_CD_INTERNAL) & 0x3 : 0);
+	}
+#endif
 }
 
 static void send_stop_cmd(struct dw_mci *host, struct mmc_data *data)
@@ -596,9 +676,32 @@ static bool dw_mci_wait_reset(struct device *dev, struct dw_mci *host,
 	unsigned int ctrl;
 
 	ctrl = mci_readl(host, CTRL);
+<<<<<<< HEAD
 	ctrl |= reset_val;
 	mci_writel(host, CTRL, ctrl);
 
+=======
+
+	if (reset_val & SDMMC_CTRL_RESET) {
+		/* Interrupt disable */
+		ctrl &= ~(SDMMC_CTRL_INT_ENABLE);
+		mci_writel(host, CTRL, ctrl);
+	}
+
+	/* Reset */
+	ctrl |= reset_val;
+	mci_writel(host, CTRL, ctrl);
+
+	if (reset_val & SDMMC_CTRL_RESET) {
+		/* All interrupt clear */
+		mci_writel(host, RINTSTS, 0xFFFFFFFF);
+
+		/* Interrupt enable */
+		ctrl |= SDMMC_CTRL_INT_ENABLE;
+		mci_writel(host, CTRL, ctrl);
+	}
+
+>>>>>>> b682b99... importet sammy NJ2
 	/* wait till resets clear */
 	do {
 		if (!(mci_readl(host, CTRL) & reset_val))
@@ -788,6 +891,7 @@ static void dw_mci_translate_sglist(struct dw_mci *host, struct mmc_data *data,
 			 */
 			desc->des0 = IDMAC_DES0_OWN | IDMAC_DES0_DIC |
 			             IDMAC_DES0_CH;
+<<<<<<< HEAD
 
 			/* Buffer length */
 			sz_per_desc = min(left, 4096);
@@ -796,6 +900,16 @@ static void dw_mci_translate_sglist(struct dw_mci *host, struct mmc_data *data,
 			/* Physical address to DMA to/from */
 			desc->des2 = mem_addr;
 
+=======
+
+			/* Buffer length */
+			sz_per_desc = min(left, 4096);
+			IDMAC_SET_BUFFER1_SIZE(desc, sz_per_desc);
+
+			/* Physical address to DMA to/from */
+			desc->des2 = mem_addr;
+
+>>>>>>> b682b99... importet sammy NJ2
 			desc++;
 			desc_cnt++;
 			mem_addr += sz_per_desc;
@@ -1095,7 +1209,11 @@ static bool dw_mci_wait_data_busy(struct dw_mci *host, struct mmc_request *mrq)
 	u32 status;
 	unsigned long timeout = jiffies + msecs_to_jiffies(500);
 	struct dw_mci_slot *slot = host->cur_slot;
+<<<<<<< HEAD
 	int try = 6;
+=======
+	int try = 2;
+>>>>>>> b682b99... importet sammy NJ2
 	u32 clkena;
 	bool ret = false;
 
@@ -1354,6 +1472,7 @@ static void dw_mci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 static void dw_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct dw_mci_slot *slot = mmc_priv(mmc);
+	struct dw_mci *host = slot->host;
 	u32 regs;
 
 	/* set default 1 bit mode */
@@ -1375,7 +1494,12 @@ static void dw_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	/* DDR mode set */
 	if (ios->timing == MMC_TIMING_UHS_DDR50 ||
+<<<<<<< HEAD
 	    ios->timing == MMC_TIMING_MMC_HS200_DDR) {
+=======
+	    ios->timing == MMC_TIMING_MMC_HS200_DDR ||
+	    ios->timing == MMC_TIMING_MMC_HS200_DDR_ES) {
+>>>>>>> b682b99... importet sammy NJ2
 		if (!mmc->tuning_progress)
 			regs |= (0x1 << slot->id) << 16;
 	} else
@@ -1389,7 +1513,14 @@ static void dw_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	mci_writel(slot->host, UHS_REG, regs);
 
+<<<<<<< HEAD
 	if (ios->timing == MMC_TIMING_MMC_HS200_DDR)
+=======
+	host->pdata->io_mode = ios->timing;
+
+	if (ios->timing == MMC_TIMING_MMC_HS200_DDR ||
+	    ios->timing == MMC_TIMING_MMC_HS200_DDR_ES)
+>>>>>>> b682b99... importet sammy NJ2
 		if (!mmc->tuning_progress)
 			mci_writel(slot->host, CDTHRCTL, 512 << 16 | 1);
 
@@ -1510,6 +1641,7 @@ static void dw_mci_enable_sdio_irq(struct mmc_host *mmc, int enb)
 	} else {
 		mci_writel(host, INTMASK,
 			   (int_mask & ~SDMMC_INT_SDIO(slot->id)));
+<<<<<<< HEAD
 	}
 }
 
@@ -1735,6 +1867,8 @@ static int dw_mci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 			"Undefined command(%d) for tuning\n",
 			opcode);
 		return -EINVAL;
+=======
+>>>>>>> b682b99... importet sammy NJ2
 	}
 
 	if (host->pdata->tuned) {
@@ -1999,6 +2133,524 @@ static void dw_mci_hw_reset(struct mmc_host *host)
 		brd->hw_reset(slot->id);
 }
 
+static void dw_mci_set_quirk_endbit(struct dw_mci *host, s8 mid)
+{
+	u32 clksel, phase;
+	u32 shift;
+
+	clksel = mci_readl(host, CLKSEL);
+	phase = (((clksel >> 24) & 0x7) + 1) << 1;
+	shift = 360 / phase;
+
+	if (host->verid < DW_MMC_260A && (shift * mid) % 360 >= 225)
+		host->quirks |= DW_MCI_QUIRK_NO_DETECT_EBIT;
+	else
+		host->quirks &= ~DW_MCI_QUIRK_NO_DETECT_EBIT;
+}
+
+static u8 dw_mci_tuning_sampling(struct dw_mci *host)
+{
+	u32 clksel;
+	u8 sample;
+
+	clksel = mci_readl(host, CLKSEL);
+	sample = (clksel + 1) & 0x7;
+	clksel = (clksel & 0xfffffff8) | sample;
+	mci_writel(host, CLKSEL, clksel);
+
+	return sample;
+}
+
+static void dw_mci_set_sampling(struct dw_mci *host, u8 sample)
+{
+	u32 clksel;
+
+	clksel = mci_readl(host, CLKSEL);
+	clksel = (clksel & 0xfffffff8) | (sample & 0x7);
+	mci_writel(host, CLKSEL, clksel);
+	dw_mci_set_quirk_endbit(host, sample);
+}
+
+static u8 dw_mci_get_sampling(struct dw_mci *host)
+{
+	u32 clksel;
+	u8 sample;
+
+	clksel = mci_readl(host, CLKSEL);
+	sample = clksel & 0x7;
+
+	return sample;
+}
+
+static s8 get_median_sample(struct dw_mci *host, u8 map)
+{
+	const u8 iter = 8;
+	u8 __map;
+	s8 i, sel = -1;
+	u8 divratio;
+
+	divratio = (mci_readl(host, CLKSEL) >> 24) & 0x7;
+
+	if (divratio == 1)
+		goto median3;
+
+	for (i = 0; i < iter; i++) {
+		__map = ror8(map, i);
+		if ((__map & 0xef) == 0xef) {
+			sel = i;
+			goto out;
+		}
+	}
+
+	for (i = 0; i < iter; i++) {
+		__map = ror8(map, i);
+		if ((__map & 0xc7) == 0xc7) {
+			sel = i;
+			goto out;
+		}
+	}
+
+median3:
+	for (i = 0; i < iter; i++) {
+		__map = ror8(map, i);
+		if ((__map & 0x83) == 0x83) {
+			sel = i;
+			goto out;
+		}
+	}
+
+	if (host->pdata->extra_tuning)
+		sel = host->pdata->extra_tuning(map);
+
+out:
+	return sel;
+}
+
+static s16 get_median_sample_16bits(struct dw_mci *host, u16 map)
+{
+	const u8 iter = 8;
+	u16 __map;
+	s8 i, sel = -1;
+	u8 divratio;
+
+	divratio = (mci_readl(host, CLKSEL) >> 24) & 0x7;
+
+	if (divratio == 1)
+		map = map & (map >> 8);
+
+	for (i = 0; i < iter; i++) {
+		__map = ror16(map, i);
+		if ((__map & 0xe00f) == 0xe00f) {
+			sel = i;
+			goto out;
+		}
+	}
+
+	for (i = 0; i < iter; i++) {
+		__map = ror16(map, i);
+		if ((__map & 0xc007) == 0xc007) {
+			sel = i;
+			if (sel == 0)
+				sel = iter - 1;
+			else
+				sel -= 1;
+		goto out;
+		}
+	}
+
+	for (i = 0; i < iter; i++) {
+		__map = ror16(map, i);
+		if ((__map & 0x8003) == 0x8003) {
+			sel = i;
+			goto out;
+		}
+	}
+
+out:
+	return sel;
+}
+
+static void dw_mci_set_fine_tuning_bit(struct dw_mci *host,
+		bool is_fine_tuning)
+{
+	u32 clksel;
+
+	clksel = mci_readl(host, CLKSEL);
+	clksel = (clksel & ~BIT(6));
+	if (is_fine_tuning)
+		clksel |= BIT(6);
+	mci_writel(host, CLKSEL, clksel);
+}
+
+static void dw_mci_save_drv_st(struct dw_mci_slot *slot)
+{
+	struct dw_mci_board *brd = slot->host->pdata;
+
+	if (brd->save_drv_st)
+		brd->save_drv_st(slot->host, slot->id);
+}
+
+static void dw_mci_restore_drv_st(struct dw_mci_slot *slot, int *compensation)
+{
+	struct dw_mci_board *brd = slot->host->pdata;
+
+	*compensation = 0;
+
+	if (brd->restore_drv_st)
+		brd->restore_drv_st(slot->host, slot->id, compensation);
+}
+
+static void dw_mci_tuning_drv_st(struct dw_mci_slot *slot)
+{
+	struct dw_mci_board *brd = slot->host->pdata;
+
+	if (brd->tuning_drv_st)
+		brd->tuning_drv_st(slot->host, slot->id);
+}
+
+void dw_mci_runtime_timing_change(struct dw_mci *host, unsigned int qos_level)
+{
+	u8 sample;
+
+	if (qos_level >= host->pdata->int_camera) {
+		if (host->pdata->is_fine_tuned)
+			dw_mci_set_fine_tuning_bit(host, false);
+		else {
+			sample = host->pdata->clk_smpl;
+			sample -= 1;
+			dw_mci_set_sampling(host, sample);
+			dw_mci_set_fine_tuning_bit(host, true);
+		}
+	} else {
+		dw_mci_set_fine_tuning_bit(host,
+			host->pdata->is_fine_tuned);
+		dw_mci_set_sampling(host, host->pdata->clk_smpl);
+	}
+}
+
+static int dw_mci_execute_tuning(struct mmc_host *mmc, u32 opcode)
+{
+	struct dw_mci_slot *slot = mmc_priv(mmc);
+	struct dw_mci *host = slot->host;
+	unsigned int tuning_loop = MAX_TUNING_LOOP;
+	unsigned int retries = MAX_TUNING_RETRIES;
+	const u8 *tuning_blk_pattern;
+	bool tuned = false;
+	int ret = 0;
+	int compensation;
+	u8 *tuning_blk;
+	u8 blksz;
+	u8 tune, start_tune;
+	s16 mid = -1;
+	u8 pass_index;
+	u16 map = 0;
+	bool en_fine_tuning = false;
+	bool is_fine_tuning = false;
+	u16 abnormal_result = 0xFF & ~(host->pdata->tuning_map_mask);
+
+	if (host->quirks & DW_MMC_QUIRK_USE_FINE_TUNING &&
+			mmc->tuning_progress & MMC_HS200_TUNING) {
+		en_fine_tuning = true;
+		abnormal_result = 0xFFFF;
+	}
+
+	if (opcode == MMC_SEND_TUNING_BLOCK_HS200) {
+		if (mmc->ios.bus_width == MMC_BUS_WIDTH_8) {
+			tuning_blk_pattern = tuning_blk_pattern_8bit;
+			blksz = 128;
+		} else if (mmc->ios.bus_width == MMC_BUS_WIDTH_4) {
+			tuning_blk_pattern = tuning_blk_pattern_4bit;
+			blksz = 64;
+		} else
+			return -EINVAL;
+	} else if (opcode == MMC_SEND_TUNING_BLOCK) {
+		tuning_blk_pattern = tuning_blk_pattern_4bit;
+		blksz = 64;
+	} else {
+		dev_err(&mmc->class_dev,
+			"Undefined command(%d) for tuning\n",
+			opcode);
+		return -EINVAL;
+	}
+
+	if (host->pdata->tuned) {
+		dw_mci_restore_drv_st(slot, &compensation);
+		dw_mci_set_sampling(host, host->pdata->clk_smpl);
+		mci_writel(host, CDTHRCTL, host->cd_rd_thr << 16 | 1);
+		return 0;
+	}
+
+	tuning_blk = kmalloc(blksz, GFP_KERNEL);
+	if (!tuning_blk)
+		return -ENOMEM;
+
+	tune = start_tune = dw_mci_get_sampling(host);
+	host->cd_rd_thr = 512;
+	mci_writel(host, CDTHRCTL, host->cd_rd_thr << 16 | 1);
+
+	dw_mci_save_drv_st(slot);
+
+	do {
+		struct mmc_request mrq = {NULL};
+		struct mmc_command cmd = {0};
+		struct mmc_command stop = {0};
+		struct mmc_data data = {0};
+		struct scatterlist sg;
+
+		if (!tuning_loop)
+			break;
+
+		cmd.opcode = opcode;
+		cmd.arg = 0;
+		cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
+
+		stop.opcode = MMC_STOP_TRANSMISSION;
+		stop.arg = 0;
+		stop.flags = MMC_RSP_R1B | MMC_CMD_AC;
+
+		data.blksz = blksz;
+		data.blocks = 1;
+		data.flags = MMC_DATA_READ;
+		data.sg = &sg;
+		data.sg_len = 1;
+
+		sg_init_one(&sg, tuning_blk, blksz);
+		dw_mci_set_timeout(host);
+
+		mrq.cmd = &cmd;
+		mrq.stop = &stop;
+		mrq.data = &data;
+		host->mrq = &mrq;
+
+		/*
+		 * DDR200 tuning Sequence with fine tuning setup
+		 *
+		 * 0. phase 0 (0 degree) + no fine tuning setup
+		 * - pass_index = 0
+		 * 1. phase 0 + fine tuning setup
+		 * - pass_index = 1
+		 * 2. phase 1 (90 degree) + no fine tuning setup
+		 * - pass_index = 2
+		 * ..
+		 * 15. phase 7 + fine tuning setup
+		 * - pass_index = 15
+		 *
+		 */
+		if (en_fine_tuning)
+			dw_mci_set_fine_tuning_bit(host, is_fine_tuning);
+		else
+			tune = dw_mci_tuning_sampling(host);
+
+		mmc_wait_for_req(mmc, &mrq);
+		
+		pass_index = tune;
+		if (en_fine_tuning) {
+			pass_index *= 2;
+			if (is_fine_tuning) {
+				pass_index++;
+				tune = dw_mci_tuning_sampling(host);
+			}
+			is_fine_tuning = !is_fine_tuning;
+		}
+
+		if (!cmd.error && !data.error) {
+			if (!memcmp(tuning_blk_pattern, tuning_blk, blksz))
+					map |= (1 << pass_index);
+		} else {
+			dev_dbg(&host->dev,
+				"Tuning error: cmd.error:%d, data.error:%d\n",
+					cmd.error, data.error);
+		}
+
+		if (start_tune == tune && !is_fine_tuning) {
+			map &= ~(host->pdata->tuning_map_mask);
+		/*
+		 * if DW_MMC_QUIRK_USE_FINE_TUNING isn't set,
+		 * which means using fine tuning,
+		 * is_fine_tuning would never be changed, is only false.
+		 * So, backward compatibility is reserved.
+		 *
+		 * When using fine tuning, 16 bits pass map is needed.
+		 * And a function to get median value with 16 bit variable
+		 * is needed.
+		 */
+			if (en_fine_tuning)
+				mid = get_median_sample_16bits(host, map);
+			else
+				mid = get_median_sample(host, (u8)map);
+
+			dev_info(&host->dev,
+				"Tuning map: 0x %08x mid: %d\n", map, mid);
+
+			host->pdata->tuning_map[MAX_TUNING_RETRIES-retries] = map;
+
+			retries--;
+			if (mid >= 0) {
+				if (map != abnormal_result || !retries) {
+					if (retries < (MAX_TUNING_RETRIES - 1)) {
+						if ((host->pdata->tuning_map[MAX_TUNING_RETRIES-retries-2] & abnormal_result)
+								!= abnormal_result) {
+							dw_mci_save_drv_st(slot);
+						}
+					}
+					tuned = true;
+					break;
+				}
+			}
+
+			if (retries) {
+				dw_mci_tuning_drv_st(slot);
+				map = 0;
+			}
+		}
+		tuning_loop--;
+	} while (!tuned && retries);
+
+	dw_mci_restore_drv_st(slot, &compensation);
+	if (((mci_readl(host, CLKSEL) >> 24) & 0x7) == 1)
+		mid = (mid + 8 + compensation) % 8;
+	else
+		mid = (mid + 16 + compensation) % 16;
+
+	/*
+	 * To set sample value with mid, the value should be divided by 2,
+	 * because mid represents index in pass map extended.(8 -> 16 bits)
+	 * And that mid is odd number, means the selected case includes
+	 * using fine tuning.
+	 */
+	if (en_fine_tuning) {
+		if (mid % 2) {
+			dw_mci_set_fine_tuning_bit(host, true);
+			host->pdata->is_fine_tuned = true;
+		} else {
+			dw_mci_set_fine_tuning_bit(host, false);
+			host->pdata->is_fine_tuned = false;
+		}
+
+		mid /= 2;
+	}
+
+	if (tuned) {
+		dw_mci_set_sampling(host, (u8)mid);
+		host->pdata->clk_smpl = (u8)mid;
+		if (host->pdata->only_once_tune)
+			host->pdata->tuned = true;
+	} else {
+		mci_writel(host, CDTHRCTL, 0 << 16 | 0);
+		dw_mci_set_sampling(host, start_tune);
+		ret = -EIO;
+	}
+
+	dev_info(&host->dev, "CLKSEL 0x %08x\n", mci_readl(host, CLKSEL));
+
+	kfree(tuning_blk);
+
+	return ret;
+}
+
+static int dw_mci_3_3v_signal_voltage_switch(struct dw_mci_slot *slot)
+{
+	struct dw_mci *host = slot->host;
+	u32 reg;
+	int ret = 0;
+
+	if (host->vqmmc) {
+		ret = regulator_set_voltage(host->vqmmc, 2800000, 2800000);
+		if (ret) {
+			dev_warn(&host->dev, "Switching to 3.3V signalling "
+					"voltage failed\n");
+			return -EIO;
+		}
+	} else {
+		reg = mci_readl(slot->host, UHS_REG);
+		reg &= ~(0x1 << slot->id);
+		mci_writel(slot->host, UHS_REG, reg);
+	}
+
+	/* Wait for 5ms */
+	usleep_range(5000, 5500);
+
+	return ret;
+}
+
+static int dw_mci_1_8v_signal_voltage_switch(struct dw_mci_slot *slot)
+{
+	struct dw_mci *host = slot->host;
+	unsigned long timeout = jiffies + msecs_to_jiffies(10);
+	u32 reg;
+	int ret = 0, retry = 10;
+	u32 status;
+
+	dw_mci_wait_reset(&host->dev, host, SDMMC_CTRL_RESET);
+
+	/* Check For DATA busy */
+	do {
+
+		while (time_before(jiffies, timeout)) {
+			status = mci_readl(host, STATUS);
+			if (!(status & SDMMC_DATA_BUSY))
+				goto out;
+		}
+
+		dw_mci_wait_reset(&host->dev, host, SDMMC_CTRL_RESET);
+		timeout = jiffies + msecs_to_jiffies(10);
+	} while (--retry);
+
+out:
+	reg = mci_readl(host, CLKENA);
+	reg &= ~((SDMMC_CLKEN_LOW_PWR | SDMMC_CLKEN_ENABLE) << slot->id);
+	mci_writel(host, CLKENA, reg);
+	mci_send_cmd(slot, SDMMC_CMD_UPD_CLK | SDMMC_CMD_PRV_DAT_WAIT, 0);
+
+	if (host->vqmmc) {
+		ret = regulator_set_voltage(host->vqmmc, 1800000, 1800000);
+		if (ret) {
+			dev_warn(&host->dev, "Switching to 1.8V signalling "
+					"voltage failed\n");
+			return -EIO;
+		}
+	} else {
+		reg = mci_readl(slot->host, UHS_REG);
+		reg |= (0x1 << slot->id);
+		mci_writel(slot->host, UHS_REG, reg);
+	}
+
+	/* Wait for 5ms */
+	usleep_range(5000, 5500);
+
+	reg = mci_readl(host, CLKENA);
+	reg |= SDMMC_CLKEN_ENABLE << slot->id;
+	mci_writel(host, CLKENA, reg);
+	mci_send_cmd(slot, SDMMC_CMD_UPD_CLK | SDMMC_CMD_PRV_DAT_WAIT, 0);
+
+	return ret;
+}
+
+static int dw_mci_start_signal_voltage_switch(struct mmc_host *mmc,
+		struct mmc_ios *ios)
+{
+	struct dw_mci_slot *slot = mmc_priv(mmc);
+
+	if (ios->signal_voltage == MMC_SIGNAL_VOLTAGE_330)
+		return dw_mci_3_3v_signal_voltage_switch(slot);
+	else if (ios->signal_voltage == MMC_SIGNAL_VOLTAGE_180)
+		return dw_mci_1_8v_signal_voltage_switch(slot);
+	else
+		return 0;
+}
+
+static void dw_mci_hw_reset(struct mmc_host *host)
+{
+	struct dw_mci_slot *slot = mmc_priv(host);
+	struct dw_mci_board *brd = slot->host->pdata;
+
+	dev_warn(&host->class_dev, "device is being hw reset\n");
+
+	/* Use platform hw_reset function */
+	if (brd->hw_reset)
+		brd->hw_reset(slot->id);
+}
+
 static const struct mmc_host_ops dw_mci_ops = {
 	.request		= dw_mci_request,
 	.pre_req		= dw_mci_pre_req,
@@ -2067,8 +2719,13 @@ static void dw_mci_command_complete(struct dw_mci *host, struct mmc_command *cmd
 
 	if (status & SDMMC_INT_RTO)
 		cmd->error = -ETIMEDOUT;
-	else if ((cmd->flags & MMC_RSP_CRC) && (status & SDMMC_INT_RCRC))
+	else if ((cmd->flags & MMC_RSP_CRC) && (status & SDMMC_INT_RCRC)) {
 		cmd->error = -EILSEQ;
+		/* for debugging, delete later*/
+		if (cmd->opcode == MMC_SET_BLOCK_COUNT)
+			dev_err(&host->dev, "RCRC, CLKSEL:	0x%08x\n",
+				mci_readl(host, CLKSEL));
+	}
 	else if (status & SDMMC_INT_RESP_ERR)
 		cmd->error = -EIO;
 	else
@@ -2080,6 +2737,7 @@ static void dw_mci_command_complete(struct dw_mci *host, struct mmc_command *cmd
 			mdelay(20);
 	}
 }
+<<<<<<< HEAD
 
 static void dw_mci_dto_timer(unsigned long data)
 {
@@ -2108,6 +2766,36 @@ static void dw_mci_dto_timer(unsigned long data)
 		return;
 	}
 
+=======
+
+static void dw_mci_dto_timer(unsigned long data)
+{
+	struct dw_mci *host = (struct dw_mci *)data;
+	u32 fifo_cnt = 0, done = false;
+
+	if (!(host->quirks & DW_MMC_QUIRK_SW_DATA_TIMEOUT))
+		return;
+
+	/* Check Data trasnfer Done */
+	if (host->pending_events & EVENT_DATA_COMPLETE)
+		done = true;
+
+	/* Check Data Transfer start */
+	fifo_cnt = mci_readl(host, STATUS);
+	fifo_cnt = (fifo_cnt >> 17) & 0x1FFF;
+	if (fifo_cnt > 0)
+		done = true;
+
+	if (done == true) {
+		/* Remove quirks for Data Timeout */
+		host->quirks &= ~DW_MMC_QUIRK_SW_DATA_TIMEOUT;
+		dev_info(&host->dev,
+		"Done, S/W timer for data timeout %d ms fifo count %d\n",
+		 host->dto_cnt, fifo_cnt);
+		return;
+	}
+
+>>>>>>> b682b99... importet sammy NJ2
 	if (host->dto_cnt < (DRTO / DRTO_MON_PERIOD)) {
 		/* monitoring */
 		host->dto_cnt++;
@@ -2116,7 +2804,12 @@ static void dw_mci_dto_timer(unsigned long data)
 		/* data timeout */
 		host->data_status |= SDMMC_INT_DTO;
 		set_bit(EVENT_DATA_ERROR, &host->pending_events);
+<<<<<<< HEAD
 		mmc_add_trace(__MMC_TA_MMC_DMA_DONE, host->mqrq);
+=======
+		if (host->mqrq)
+			mmc_add_trace(__MMC_TA_MMC_DMA_DONE, host->mqrq);
+>>>>>>> b682b99... importet sammy NJ2
 		tasklet_schedule(&host->tasklet);
 	}
 }
@@ -2366,8 +3059,14 @@ static void dw_mci_tasklet_func(unsigned long priv)
 				break;
 
 			dw_mci_stop_dma(host);
+<<<<<<< HEAD
 			set_bit(EVENT_XFER_COMPLETE, &host->completed_events);
 			set_bit(EVENT_DATA_COMPLETE, &host->pending_events);
+=======
+			dw_mci_fifo_reset(&host->dev, host);
+			set_bit(EVENT_XFER_COMPLETE, &host->completed_events);
+			set_bit(EVENT_CMD_COMPLETE, &host->pending_events);
+>>>>>>> b682b99... importet sammy NJ2
 
 			state = STATE_DATA_BUSY;
 			break;
@@ -2903,7 +3602,12 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
 		if (pending & SDMMC_INT_DATA_OVER) {
 			mci_writel(host, RINTSTS, SDMMC_INT_DATA_OVER);
 			/* for mmc trace */
+<<<<<<< HEAD
 			mmc_add_trace(__MMC_TA_MMC_DMA_DONE, host->mqrq);
+=======
+			if (host->mqrq)
+				mmc_add_trace(__MMC_TA_MMC_DMA_DONE, host->mqrq);
+>>>>>>> b682b99... importet sammy NJ2
 			if (!host->data_status)
 				host->data_status = pending;
 			smp_wmb();
@@ -2987,6 +3691,14 @@ static void dw_mci_timeout_timer(unsigned long data)
 	if (host && host->mrq) {
 		mrq = host->mrq;
 
+<<<<<<< HEAD
+=======
+		dev_err(&host->dev,
+			"Timeout waiting for hardware interrupt."
+			" state = %d\n", host->state);
+		dw_mci_reg_dump(host);
+
+>>>>>>> b682b99... importet sammy NJ2
 		spin_lock(&host->lock);
 
 		host->sg = NULL;
@@ -3017,10 +3729,13 @@ static void dw_mci_timeout_timer(unsigned long data)
 		}
 
 		spin_unlock(&host->lock);
+<<<<<<< HEAD
 		dev_err(&host->dev,
 			"Timeout waiting for hardware interrupt."
 			" state = %d\n", host->state);
 		dw_mci_reg_dump(host);
+=======
+>>>>>>> b682b99... importet sammy NJ2
 		dw_mci_fifo_reset(&host->dev, host);
 		dw_mci_ciu_reset(&host->dev, host);
 		spin_lock(&host->lock);
@@ -3257,12 +3972,21 @@ static int __devinit dw_mci_init_slot(struct dw_mci *host, unsigned int id)
 		mmc->caps2 = host->pdata->caps2;
 	else
 		mmc->caps2 = 0;
+<<<<<<< HEAD
 
 	if (host->pdata->pm_caps) {
 		mmc->pm_caps |= host->pdata->pm_caps;
 		mmc->pm_flags = mmc->pm_caps;
 	}
 
+=======
+
+	if (host->pdata->pm_caps) {
+		mmc->pm_caps |= host->pdata->pm_caps;
+		mmc->pm_flags = mmc->pm_caps;
+	}
+
+>>>>>>> b682b99... importet sammy NJ2
 	if (host->pdata->get_bus_wd) {
 		unsigned int bus_width = host->pdata->get_bus_wd(slot->id);
 		switch (bus_width) {
@@ -3793,7 +4517,11 @@ int dw_mci_suspend(struct dw_mci *host)
 
 	if (host->pdata->cd_type == DW_MCI_CD_GPIO) {
 		if (tflash_present)
+<<<<<<< HEAD
 			mdelay(15);
+=======
+			mdelay(25);
+>>>>>>> b682b99... importet sammy NJ2
 	}
 
 	return 0;
@@ -3949,6 +4677,11 @@ EXPORT_SYMBOL(dw_mci_early_resume);
 static int __init dw_mci_init(void)
 {
 	printk(KERN_INFO "Synopsys Designware Multimedia Card Interface Driver");
+
+#if defined(CONFIG_MMC_DW_CMD_LOGGING)
+	pr_info("%s: dw_mci_cmd_logs enable...\n", __func__);
+	memset(dw_mci_cmd_logs, 0, sizeof(dw_mci_cmd_logs));
+#endif
 	return 0;
 }
 

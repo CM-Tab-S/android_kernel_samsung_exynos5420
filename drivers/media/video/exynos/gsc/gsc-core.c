@@ -1229,10 +1229,16 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 		struct gsc_ctx *ctx =
 			v4l2_m2m_get_curr_priv(gsc->m2m.m2m_dev);
 
-		if (!ctx || !ctx->m2m_ctx)
-			goto isr_unlock;
+		if (timer_pending(&gsc->op_timer))
+			del_timer(&gsc->op_timer);
 
-		del_timer(&ctx->op_timer);
+		if (!ctx || !ctx->m2m_ctx) {
+			gsc_err("ctx : 0x%p", ctx);
+			pm_runtime_put(&gsc->pdev->dev);
+			gsc->runtime_put_cnt++;
+			goto isr_unlock;
+		}
+
 		src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
 		dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
 		if (src_vb && dst_vb) {
@@ -1253,6 +1259,7 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 			spin_unlock(&ctx->slock);
 		}
 		pm_runtime_put(&gsc->pdev->dev);
+		gsc->runtime_put_cnt++;
 	} else if (test_bit(ST_OUTPUT_STREAMON, &gsc->state)) {
 		if (!list_empty(&gsc->out.active_buf_q) &&
 		    !list_is_singular(&gsc->out.active_buf_q)) {
@@ -1349,16 +1356,21 @@ void gsc_clock_gating(struct gsc_dev *gsc, enum gsc_clk_status status)
 
 int gsc_set_protected_content(struct gsc_dev *gsc, bool enable)
 {
+	unsigned long flags;
 	if (gsc->protected_content == enable)
 		return 0;
 
-	if (enable)
+	if (enable) {
 		pm_runtime_get_sync(&gsc->pdev->dev);
+		gsc->runtime_get_cnt++;
+	}
 
 	gsc->vb2->set_protected(gsc->alloc_ctx, enable);
 
-	if (!enable)
+	if (!enable) {
 		pm_runtime_put_sync(&gsc->pdev->dev);
+		gsc->runtime_put_cnt++;
+	}
 
 	gsc->protected_content = enable;
 
@@ -1371,6 +1383,13 @@ void gsc_dump_registers(struct gsc_dev *gsc)
 	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4, gsc->regs,
 			0x0280, false);
 	pr_err("End of GSC_SFR DUMP\n");
+#ifdef CONFIG_SOC_EXYNOS5420
+	pr_err("## Clock SFR of gscaler \n");
+	pr_err("CLKSRC_TOP2 : 0x%x\n", readl(EXYNOS5_CLKSRC_TOP2));
+	pr_err("CLKSRC_TOP5 : 0x%x\n", readl(EXYNOS5_CLKSRC_TOP5));
+	pr_err("CLKSRC_TOP12 : 0x%x\n", readl(EXYNOS5_CLKSRC_TOP12));
+	pr_err("CLKDIV_TOP2 : 0x%x\n", readl(EXYNOS5_CLKDIV_TOP2));
+#endif
 }
 
 int gsc_sysmmu_fault_handler(struct device *dev, const char *mmuname,
@@ -1396,6 +1415,10 @@ static int gsc_runtime_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gsc_dev *gsc = (struct gsc_dev *)platform_get_drvdata(pdev);
 
+	if (!test_bit(ST_RUNTIME_RESUME, &gsc->state))
+		gsc_err("Already clear state");
+
+	clear_bit(ST_RUNTIME_RESUME, &gsc->state);
 	gsc_clock_gating(gsc, GSC_CLK_OFF);
 	if (gsc_m2m_opened(gsc))
 		gsc->m2m.ctx = NULL;
@@ -1414,6 +1437,10 @@ static int gsc_runtime_resume(struct device *dev)
 			gsc_clocks[CLK_CHILD], gsc_clocks[CLK_PARENT]);
 		return -EINVAL;
 	}
+	if (test_bit(ST_RUNTIME_RESUME, &gsc->state))
+		gsc_err("Already resume state");
+
+	set_bit(ST_RUNTIME_RESUME, &gsc->state);
 
 	gsc_clock_gating(gsc, GSC_CLK_ON);
 
@@ -1492,6 +1519,15 @@ static int gsc_probe(struct platform_device *pdev)
 		ret = -ENXIO;
 		goto err_req_region;
 	}
+
+	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	if (!res) {
+		dev_err(&pdev->dev, "failed to get IRQ resource\n");
+		ret = -ENXIO;
+		goto err_regs_unmap;
+	}
+	gsc->irq = res->start;
+
 	gsc->clock[CLK_GATE] =
 		clk_get(&gsc->pdev->dev, gsc_clocks[CLK_GATE]);
 	if (IS_ERR(gsc->clock[CLK_GATE])) {
@@ -1504,26 +1540,13 @@ static int gsc_probe(struct platform_device *pdev)
 	if (IS_ERR(gsc->clock[CLK_CHILD])) {
 		dev_err(&pdev->dev, "failed to get %s clock\n",
 			gsc_clocks[CLK_CHILD]);
-		goto err_clk_put;
+		goto err_regs_unmap;
 	}
 
 	gsc->clock[CLK_PARENT] = clk_get(NULL, gsc_clocks[CLK_PARENT]);
 	if (IS_ERR(gsc->clock[CLK_PARENT])) {
 		dev_err(&pdev->dev, "failed to get %s clock\n",
 			gsc_clocks[CLK_PARENT]);
-		goto err_clk_put;
-	}
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "failed to get IRQ resource\n");
-		ret = -ENXIO;
-		goto err_regs_unmap;
-	}
-	gsc->irq = res->start;
-
-	ret = request_irq(gsc->irq, gsc_irq_handler, 0, pdev->name, gsc);
-	if (ret) {
-		dev_err(&pdev->dev, "failed to install irq (%d)\n", ret);
 		goto err_regs_unmap;
 	}
 
@@ -1537,17 +1560,17 @@ static int gsc_probe(struct platform_device *pdev)
 
 	ret = gsc_register_m2m_device(gsc);
 	if (ret)
-		goto err_irq;
+		goto err_clk_put;
 
 	/* find media device */
 	driver = driver_find(MDEV_MODULE_NAME, &platform_bus_type);
 	if (!driver)
-		goto err_irq;
+		goto err_clk_put;
 
 	ret = driver_for_each_device(driver, NULL, &mdev[0],
 			gsc_get_media_info);
 	if (ret)
-		goto err_irq;
+		goto err_clk_put;
 
 	gsc->mdev[MDEV_OUTPUT] = mdev[MDEV_OUTPUT];
 	gsc->mdev[MDEV_CAPTURE] = mdev[MDEV_CAPTURE];
@@ -1558,19 +1581,25 @@ static int gsc_probe(struct platform_device *pdev)
 
 	ret = gsc_register_output_device(gsc);
 	if (ret)
-		goto err_irq;
+		goto err_clk_put;
 
 	if (gsc->pdata)	{
 		ret = gsc_register_capture_device(gsc);
 		if (ret)
-			goto err_irq;
+			goto err_clk_put;
 	}
 	snprintf(workqueue_name, WORKQUEUE_NAME_SIZE,
 			"gsc%d_irq_wq_name", gsc->id);
 	gsc->irq_workqueue = create_singlethread_workqueue(workqueue_name);
 	if (gsc->irq_workqueue == NULL) {
 		dev_err(&pdev->dev, "failed to create workqueue for gsc\n");
-		goto err_irq;
+		goto err_clk_put;
+	}
+
+	ret = request_irq(gsc->irq, gsc_irq_handler, 0, pdev->name, gsc);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to install irq (%d)\n", ret);
+		goto err_clk_put;
 	}
 
 	gsc->alloc_ctx = gsc->vb2->init(gsc);
@@ -1587,16 +1616,19 @@ static int gsc_probe(struct platform_device *pdev)
 
 	gsc_pm_runtime_enable(&pdev->dev);
 
+	gsc->runtime_get_cnt = 0;
+	gsc->runtime_put_cnt = 0;
+	clear_bit(ST_RUNTIME_RESUME, &gsc->state);
 	gsc_info("gsc-%d registered successfully", gsc->id);
 
 	return 0;
 
 err_irq:
 	free_irq(gsc->irq, gsc);
-err_regs_unmap:
-	iounmap(gsc->regs);
 err_clk_put:
 	gsc_clk_put(gsc);
+err_regs_unmap:
+	iounmap(gsc->regs);
 err_req_region:
 	release_resource(gsc->regs_res);
 	kfree(gsc->regs_res);

@@ -3906,7 +3906,7 @@ static int __devinit sii8240_tmds_i2c_probe(struct i2c_client *client,
 			"sii8240", sii8240);
 	if (ret < 0) {
 		printk(KERN_ERR "[MHL]request irq Q failing\n");
-		goto err_exit0;
+		goto err_exit1;
 	}
 	disable_irq(client->irq);
 	sii8240->irq_enabled = false;
@@ -3926,7 +3926,7 @@ static int __devinit sii8240_tmds_i2c_probe(struct i2c_client *client,
 	ret = class_create_file(sec_mhl, &class_attr_test_result);
 	if (ret) {
 		dev_err(&client->dev, "failed to dev_attr_test_result\n");
-		goto err_exit0;
+		goto err_exit2;
 	}
 #endif
 #ifdef CONFIG_MHL_SWING_LEVEL
@@ -3944,7 +3944,7 @@ static int __devinit sii8240_tmds_i2c_probe(struct i2c_client *client,
 	ret = sii8240_register_input_device(sii8240);
 	if (ret) {
 		dev_err(&client->dev, "failed to register input device\n");
-		goto err_exit0;
+		goto err_exit3;
 	}
 
 #ifdef SFEATURE_UNSTABLE_SOURCE_WA
@@ -3958,6 +3958,17 @@ static int __devinit sii8240_tmds_i2c_probe(struct i2c_client *client,
 	pr_info("***MHL probe is successful\n");
 	return 0;
 
+err_exit3:
+	class_remove_file(sec_mhl, &class_attr_test_result);
+err_exit2:
+	free_irq(client->irq,sii8240);
+err_exit1:
+	mutex_destroy(&sii8240->lock);
+	mutex_destroy(&sii8240->cbus_lock);
+	mutex_destroy(&sii8240->msc_lock);
+	mutex_destroy(&sii8240->input_lock);
+	destroy_workqueue(sii8240->cbus_cmd_wqs);
+	destroy_workqueue(sii8240->avi_cmd_wqs);
 err_exit0:
 	kfree(sii8240);
 	return ret;

@@ -60,6 +60,9 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 
 	int has_rw = get_caller_has_rw_locked(sbi->pkgl_id, sbi->options.derive);
 	if(!check_caller_access_to_name(dir, dentry->d_name.name, sbi->options.derive, 1, has_rw)) {
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+						 "  dentry: %s, task:%s\n",
+						 __func__, dentry->d_name.name, current->comm);
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -162,6 +165,9 @@ static int sdcardfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	int has_rw = get_caller_has_rw_locked(sbi->pkgl_id, sbi->options.derive);
 	if(!check_caller_access_to_name(dir, dentry->d_name.name, sbi->options.derive, 1, has_rw)) {
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+						 "  dentry: %s, task:%s\n",
+						 __func__, dentry->d_name.name, current->comm);
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -278,6 +284,9 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 
 	int has_rw = get_caller_has_rw_locked(sbi->pkgl_id, sbi->options.derive);
 	if(!check_caller_access_to_name(dir, dentry->d_name.name, sbi->options.derive, 1, has_rw)) {
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+						 "  dentry: %s, task:%s\n",
+						 __func__, dentry->d_name.name, current->comm);
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -401,6 +410,9 @@ static int sdcardfs_rmdir(struct inode *dir, struct dentry *dentry)
 
 	int has_rw = get_caller_has_rw_locked(sbi->pkgl_id, sbi->options.derive);
 	if(!check_caller_access_to_name(dir, dentry->d_name.name, sbi->options.derive, 1, has_rw)) {
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+						 "  dentry: %s, task:%s\n",
+						  __func__, dentry->d_name.name, current->comm);
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -500,6 +512,9 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			sbi->options.derive, 1, has_rw) ||
 		!check_caller_access_to_name(new_dir, new_dentry->d_name.name,
 			sbi->options.derive, 1, has_rw)) {
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+						 "  new dentry: %s, task:%s\n",
+						 __func__, new_dentry->d_name.name, current->comm);
 		err = -EACCES;
 		goto out_eacces;
 	}
@@ -696,6 +711,9 @@ static int sdcardfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 	if(!check_caller_access_to_name(parent->d_inode, dentry->d_name.name,
 						sbi->options.derive, 0, 0)) {
 		dput(parent);
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+						 "  dentry: %s, task:%s\n",
+						 __func__, dentry->d_name.name, current->comm);
 		return -EACCES;
 	}
 	dput(parent);
@@ -746,8 +764,12 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 		has_rw = get_caller_has_rw_locked(sbi->pkgl_id, sbi->options.derive);
 		parent = dget_parent(dentry);
 		if(!check_caller_access_to_name(parent->d_inode, dentry->d_name.name,
-						sbi->options.derive, 1, has_rw))
+						sbi->options.derive, 1, has_rw)) {
+			printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+							 "  dentry: %s, task:%s\n",
+							 __func__, dentry->d_name.name, current->comm);
 			err = -EACCES;
+		}
 		dput(parent);
 	} 
 
@@ -773,11 +795,13 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	 * afterwards in the other cases: we fsstack_copy_inode_size from
 	 * the lower level.
 	 */
-	down_write(&current->mm->mmap_sem);
+	if (current->mm)
+		down_write(&current->mm->mmap_sem);
 	if (ia->ia_valid & ATTR_SIZE) {
 		err = inode_newsize_ok(inode, ia->ia_size);
 		if (err) {
-			up_write(&current->mm->mmap_sem);
+			if (current->mm)
+				up_write(&current->mm->mmap_sem);
 			goto out;
 		}
 		truncate_setsize(inode, ia->ia_size);
@@ -799,7 +823,8 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	mutex_lock(&lower_dentry->d_inode->i_mutex);
 	err = notify_change(lower_dentry, &lower_ia); /* note: lower_ia */
 	mutex_unlock(&lower_dentry->d_inode->i_mutex);
-	up_write(&current->mm->mmap_sem);
+	if (current->mm)
+		up_write(&current->mm->mmap_sem);
 	if (err)
 		goto out;
 

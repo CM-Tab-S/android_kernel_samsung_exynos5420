@@ -375,6 +375,11 @@ static int fimc_is_isp_video_qbuf(struct file *file, void *priv,
 		goto p_err;
 	}
 
+	if (atomic_read(&queue->vbq->queued_count) >= 5) {
+                merr("queued count is over %d", vctx, atomic_read(&queue->vbq->queued_count));
+                return -EINVAL;
+        }
+
 	ret = fimc_is_video_qbuf(file, vctx, buf);
 	if (ret)
 		merr("fimc_is_video_qbuf is fail(%d)", vctx, ret);

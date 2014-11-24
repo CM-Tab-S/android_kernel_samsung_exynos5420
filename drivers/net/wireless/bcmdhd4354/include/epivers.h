@@ -30,6 +30,7 @@
 
 #define	EPI_MINOR_VERSION	141
 
+<<<<<<< HEAD
 #define	EPI_RC_NUMBER		32
 
 #define	EPI_INCREMENTAL_NUMBER	0
@@ -44,5 +45,21 @@
 
 /* Driver Version String, ASCII, 32 chars max */
 #define	EPI_VERSION_STR		"1.141.32 (r)"
+=======
+#define	EPI_RC_NUMBER		44
+
+#define	EPI_INCREMENTAL_NUMBER	2
+
+#define	EPI_BUILD_NUMBER	0
+
+#define	EPI_VERSION		1, 141, 44, 2
+
+#define	EPI_VERSION_NUM		0x018d2c02
+
+#define EPI_VERSION_DEV		1.141.44
+
+/* Driver Version String, ASCII, 32 chars max */
+#define	EPI_VERSION_STR		"1.141.44.2 (r)"
+>>>>>>> b682b99... importet sammy NJ2
 
 #endif /* _epivers_h_ */

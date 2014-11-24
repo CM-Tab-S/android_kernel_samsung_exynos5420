@@ -81,6 +81,8 @@ static sec_charging_current_t charging_current_table[] = {
 	{0,	0,	0,	0},
 	{0,	0,	0,	0},
 	{1000,	1000,	300,	40*60},/* LAN hub */
+	{460,	460,	300,	40*60},/*mhl usb*/
+	{0, 0,	0,	0},/*power sharing*/
 };
 
 static bool sec_bat_adc_none_init(
@@ -169,9 +171,15 @@ static void sec_bat_initial_check(void)
 	union power_supply_propval value;
 
 	if (POWER_SUPPLY_TYPE_BATTERY < current_cable_type) {
-		value.intval = current_cable_type<<ONLINE_TYPE_MAIN_SHIFT;
-		psy_do_property("battery", set,
-			POWER_SUPPLY_PROP_ONLINE, value);
+		if (current_cable_type == POWER_SUPPLY_TYPE_POWER_SHARING) {
+			value.intval = current_cable_type;
+			psy_do_property("ps", set,
+				POWER_SUPPLY_PROP_ONLINE, value);
+		} else {
+			value.intval = current_cable_type<<ONLINE_TYPE_MAIN_SHIFT;
+			psy_do_property("battery", set,
+				POWER_SUPPLY_PROP_ONLINE, value);
+		}
 	} else {
 		psy_do_property("sec-charger", get,
 				POWER_SUPPLY_PROP_ONLINE, value);
@@ -179,7 +187,7 @@ static void sec_bat_initial_check(void)
 			value.intval =
 				POWER_SUPPLY_TYPE_WPC<<ONLINE_TYPE_MAIN_SHIFT;
 			psy_do_property("battery", set,
-					POWER_SUPPLY_PROP_ONLINE, value);
+				POWER_SUPPLY_PROP_ONLINE, value);
 		}
 	}
 }
@@ -555,6 +563,8 @@ sec_battery_platform_data_t sec_battery_pdata = {
 		SEC_BATTERY_ADC_TYPE_AP,	/* TEMP */
 		SEC_BATTERY_ADC_TYPE_NONE,	/* TEMP_AMB */
 		SEC_BATTERY_ADC_TYPE_AP,	/* FULL_CHECK */
+		SEC_BATTERY_ADC_TYPE_NONE,	/* VOLTAGE_NOW */
+		SEC_BATTERY_ADC_TYPE_NONE,	/* INBAT_VOLTAGE */
 	},
 
 	/* Battery */

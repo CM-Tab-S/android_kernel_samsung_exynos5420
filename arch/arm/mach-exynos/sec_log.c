@@ -584,3 +584,30 @@ out:
 }
 __setup("sec_tima_log=", sec_tima_log_setup);
 #endif
+
+#if (defined CONFIG_SEC_DEBUG && defined CONFIG_SEC_DEBUG_SUBSYS)
+extern void sec_debug_subsys_info_set_log_buffer(char* buffer, unsigned size);
+
+static int __init sec_subsys_log_setup(char *str)
+{
+	unsigned size = memparse(str, &str);
+	unsigned long base = 0;
+
+	/* If we encounter any problem parsing str ... */
+	if (!size || size != roundup_pow_of_two(size) || *str != '@'
+		|| kstrtoul(str + 1, 0, &base))
+			goto out;
+
+	if (reserve_bootmem(base - 8, size + 8, BOOTMEM_EXCLUSIVE)) {
+			pr_err("%s: failed reserving size %d " \
+						"at base 0x%lx\n", __func__, size, base);
+			goto out;
+	}
+
+	sec_debug_subsys_info_set_log_buffer(phys_to_virt(base),size);
+
+out:
+	return 0;
+}
+__setup("sec_summary_log=", sec_subsys_log_setup);
+#endif

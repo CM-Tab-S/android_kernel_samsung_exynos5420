@@ -35,7 +35,7 @@
 
 
 /* definitions */
-#define	SEC_SIZEOF_POWER_SUPPLY_TYPE	14
+#define	SEC_SIZEOF_POWER_SUPPLY_TYPE	17
 
 enum sec_battery_voltage_mode {
 	/* average voltage */
@@ -80,7 +80,8 @@ enum sec_battery_adc_channel {
 	SEC_BAT_ADC_CHANNEL_TEMP_AMBIENT,
 	SEC_BAT_ADC_CHANNEL_FULL_CHECK,
 	SEC_BAT_ADC_CHANNEL_VOLTAGE_NOW,
-	SEC_BAT_ADC_CHANNEL_NUM
+	SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE,
+	SEC_BAT_ADC_CHANNEL_NUM,
 };
 
 /* charging mode */

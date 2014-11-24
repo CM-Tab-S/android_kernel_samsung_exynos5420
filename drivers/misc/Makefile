@@ -59,6 +59,7 @@ obj-$(CONFIG_SEC_MODEM_IF)	+= modem_if/
 ifeq ($(TIMA_ENABLED),1)
 obj-$(CONFIG_TIMA_LOG)		+= tima_debug_log.o
 endif
+obj-$(CONFIG_QC_MODEM)		+= mdm_if/
 
 # Secure OS Mobicore Interface
 obj-$(CONFIG_MOBICORE_DRIVER)  += tzic.o

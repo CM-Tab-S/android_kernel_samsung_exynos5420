@@ -1861,6 +1861,19 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 
 	if (!xhci->rh_bw)
 		goto no_bw;
+<<<<<<< HEAD
+=======
+
+	num_ports = HCS_MAX_PORTS(xhci->hcs_params1);
+	for (i = 0; i < num_ports; i++) {
+		struct xhci_interval_bw_table *bwt = &xhci->rh_bw[i].bw_table;
+		for (j = 0; j < XHCI_MAX_INTERVAL; j++) {
+			struct list_head *ep = &bwt->interval_bw[j].endpoints;
+			while (!list_empty(ep))
+				list_del_init(ep->next);
+		}
+	}
+>>>>>>> b682b99... importet sammy NJ2
 
 	for (i = 0; i < num_ports; i++) {
 		struct xhci_tt_bw_info *tt, *n;

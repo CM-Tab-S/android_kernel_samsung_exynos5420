@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_android.h 440870 2013-12-04 05:23:45Z $
+ * $Id: wl_android.h 454971 2014-02-12 14:56:41Z $
  */
 
 #include <linux/module.h>
@@ -95,5 +95,5 @@ s32 wl_genl_send_msg(struct net_device *ndev, u32 event_type,
 	u8 *string, u16 len, u8 *hdr, u16 hdrlen);
 #endif /* WL_GENL */
 #ifdef WLAIBSS
-s32 wl_netlink_send_msg(int pid, int seq, void *data, int size);
+s32 wl_netlink_send_msg(int pid, int seq, void *data, size_t size);
 #endif /* WLAIBSS */

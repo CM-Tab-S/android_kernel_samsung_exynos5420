@@ -25,6 +25,20 @@
 #include <linux/i2c/touchkey_i2c.h>
 
 /* Touchkey Register */
+<<<<<<< HEAD
+=======
+#define CYPRESS_REG_STATUS	0x00
+#define CYPRESS_REG_FW_VER	0X01
+#define CYPRESS_REG_MD_VER	0X02
+#define CYPRESS_REG_COMMAND	0X03
+#define CYPRESS_REG_THRESHOLD	0X04
+#define CYPRESS_REG_AUTOCAL	0X05
+#define CYPRESS_REG_IDAC	0X06
+#define CYPRESS_REG_DIFF	0X0A
+#define CYPRESS_REG_RAW		0X0E
+#define CYPRESS_REG_BASE	0X12
+
+>>>>>>> b682b99... importet sammy NJ2
 #define KEYCODE_REG			0x00
 
 #define TK_BIT_PRESS_EV		0x08
@@ -45,6 +59,14 @@
 #define TK_UPDATE_FAIL		-1
 #define TK_UPDATE_PASS		0
 
+<<<<<<< HEAD
+=======
+/* update condition */
+#define TK_RUN_UPDATE 1
+#define TK_EXIT_UPDATE 2
+#define TK_RUN_CHK 3
+
+>>>>>>> b682b99... importet sammy NJ2
 /* Flip cover*/
 #define TKEY_FLIP_MODE
 
@@ -67,6 +89,7 @@
 #endif
 
 /* for HA */
+<<<<<<< HEAD
 #define FW_PATH "cypress/cypress_ha_m09.fw"
 #define TKEY_MODULE07_HWID 8
 #define TKEY_FW_PATH "/sdcard/cypress/fw.bin"
@@ -75,6 +98,29 @@
 
 /* LCD Type check*/
 #if defined(CONFIG_HA)
+=======
+#if defined(CONFIG_KLIMT)
+#define FW_PATH "cypress/cypress_klimt.fw"
+#else
+#define FW_PATH "cypress/cypress_ha_m09.fw"
+#endif
+#define TKEY_MODULE07_HWID 8
+#define TKEY_FW_PATH "/sdcard/cypress/fw.bin"
+
+#if defined(CONFIG_KLIMT)
+#define TK_USE_RECENT
+#endif
+
+#if defined(CONFIG_MACH_HLLTE) || \
+	defined(CONFIG_MACH_HL3G)
+#define TK_SUPPORT_MT
+#endif
+
+/*#define TK_USE_2KEY_TYPE_M0*/
+
+/* LCD Type check*/
+#if defined(CONFIG_HA) || defined(CONFIG_KLIMT)
+>>>>>>> b682b99... importet sammy NJ2
 #define TK_USE_LCDTYPE_CHECK
 #endif
 
@@ -110,7 +156,10 @@ enum BOOST_LEVEL {
 #define TKEY_BOOSTER_MIF_FREQ2 400000
 #define TKEY_BOOSTER_INT_FREQ2 111000
 #endif
+<<<<<<< HEAD
 /* #define TK_INFORM_CHARGER	1 */
+=======
+>>>>>>> b682b99... importet sammy NJ2
 
 /* #define TK_USE_OPEN_DWORK */
 #ifdef TK_USE_OPEN_DWORK
@@ -120,12 +169,15 @@ enum BOOST_LEVEL {
 #define	TK_GLOVE_DWORK_TIME	300
 #endif
 
+<<<<<<< HEAD
 #if defined(TK_INFORM_CHARGER)
 struct touchkey_callbacks {
 	void (*inform_charger)(struct touchkey_callbacks *, bool);
 };
 #endif
 
+=======
+>>>>>>> b682b99... importet sammy NJ2
 enum {
 	FW_NONE = 0,
 	FW_BUILT_IN,
@@ -134,6 +186,10 @@ enum {
 	FW_EX_SDCARD,
 };
 
+<<<<<<< HEAD
+=======
+#if 0
+/* header ver 0 */
 struct fw_image {
 	u8 hdr_ver;
 	u8 hdr_len;
@@ -141,6 +197,24 @@ struct fw_image {
 	u16 second_fw_ver;
 	u16 third_ver;
 	u32 fw_len;
+	u8 data[0];
+} __attribute__ ((packed));
+#endif
+
+/* header ver 1 */
+>>>>>>> b682b99... importet sammy NJ2
+struct fw_image {
+	u8 hdr_ver;
+	u8 hdr_len;
+	u16 first_fw_ver;
+	u16 second_fw_ver;
+	u16 third_ver;
+	u32 fw_len;
+<<<<<<< HEAD
+=======
+	u16 checksum;
+	u16 alignment_dummy;
+>>>>>>> b682b99... importet sammy NJ2
 	u8 data[0];
 } __attribute__ ((packed));
 
@@ -197,10 +271,17 @@ struct touchkey_i2c {
 	u8 fw_path;
 	const struct firmware *firm_data;
 	struct fw_image *fw_img;
+<<<<<<< HEAD
 };
 
 extern struct class *sec_class;
 void touchkey_charger_infom(bool en);
+=======
+	bool do_checksum;
+};
+
+extern struct class *sec_class;
+>>>>>>> b682b99... importet sammy NJ2
 
 extern unsigned int lcdtype;
 extern unsigned int system_rev;

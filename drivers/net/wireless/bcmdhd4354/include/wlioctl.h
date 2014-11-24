@@ -24,7 +24,11 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
+<<<<<<< HEAD
  * $Id: wlioctl.h 433418 2013-10-31 20:16:40Z $
+=======
+ * $Id: wlioctl.h 450748 2014-01-23 00:49:46Z $
+>>>>>>> b682b99... importet sammy NJ2
  */
 
 #ifndef _wlioctl_h_
@@ -37,6 +41,10 @@
 #include <proto/bcmip.h>
 #include <proto/bcmevent.h>
 #include <proto/802.11.h>
+<<<<<<< HEAD
+=======
+#include <proto/802.1d.h>
+>>>>>>> b682b99... importet sammy NJ2
 #include <bcmwifi_channels.h>
 #include <bcmwifi_rates.h>
 #include <devctrl_if/wlioctl_defs.h>
@@ -2219,6 +2227,15 @@ struct ampdu_tid_control {
 	uint8 enable;			/* enable/disable */
 };
 
+<<<<<<< HEAD
+=======
+/* struct for per-tid, per-mode ampdu control */
+struct ampdu_tid_control_mode {
+	struct ampdu_tid_control control[NUMPRIO]; /* tid will be 0xff for not used element */
+	char mode_name[8]; /* supported mode : AIBSS */
+};
+
+>>>>>>> b682b99... importet sammy NJ2
 /* structure for identifying ea/tid for sending addba/delba */
 struct ampdu_ea_tid {
 	struct ether_addr ea;		/* Station address */

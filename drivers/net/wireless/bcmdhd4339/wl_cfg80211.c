@@ -189,20 +189,20 @@ static const struct ieee80211_regdomain brcm_regdom = {
  * STA + P2P Mode - #STA <= 2, #{P2P-GO, P2P-client} <= 1, #P2P-device <= 1
  *                  on channels = 2
  */
-static const struct ieee80211_iface_limit softap_limits[] = {
+static const struct ieee80211_iface_limit common_if_limits[] = {
 	{
 	.max = 1,
 	.types = BIT(NL80211_IFTYPE_AP),
 	},
-};
-
-static const struct ieee80211_iface_limit sta_p2p_limits[] = {
+	{
 	/*
 	 * During P2P-GO removal, P2P-GO is first changed to STA and later only
-	 * removed. So setting maximum possible number of STA interfaces as 3 to
-	 * accommodate the above behaviour.
+	 * removed. So setting maximum possible number of STA interfaces according
+	 * to kernel version.
+	 *
+	 * less than linux-3.8 - max:3 (wlan0 + p2p0 + group removal of p2p-p2p0-x)
+	 * linux-3.8 and above - max:2 (wlan0 + group removal of p2p-wlan0-x)
 	 */
-	{
 #ifdef WL_ENABLE_P2P_IF
 	.max = 3,
 #else
@@ -228,22 +228,12 @@ static const struct ieee80211_iface_limit sta_p2p_limits[] = {
 };
 
 static const struct ieee80211_iface_combination
-softap_iface_combinations[] = {
-	{
-	.num_different_channels = 1,
-	.max_interfaces = 1,
-	.limits = softap_limits,
-	.n_limits = ARRAY_SIZE(softap_limits),
-	},
-};
-
-static const struct ieee80211_iface_combination
-sta_p2p_iface_combinations[] = {
+common_iface_combinations[] = {
 	{
 	.num_different_channels = 2,
-	.max_interfaces = 3,
-	.limits = sta_p2p_limits,
-	.n_limits = ARRAY_SIZE(sta_p2p_limits),
+	.max_interfaces = 4,
+	.limits = common_if_limits,
+	.n_limits = ARRAY_SIZE(common_if_limits),
 	},
 };
 #endif /* LINUX_VER >= 3.0 && (WL_IFACE_COMB_NUM_CHANNELS || WL_CFG80211_P2P_DEV_IF) */
@@ -7267,10 +7257,6 @@ s32 wl_mode_to_nl80211_iftype(s32 mode)
 static s32 wl_setup_wiphy(struct wireless_dev *wdev, struct device *sdiofunc_dev, void *data)
 {
 	s32 err = 0;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)) && \
-	(defined(WL_IFACE_COMB_NUM_CHANNELS) || defined(WL_CFG80211_P2P_DEV_IF))
-	dhd_pub_t *dhd = (dhd_pub_t *)data;
-#endif /* LINUX_VER >= 3.0 && (WL_IFACE_COMB_NUM_CHANNELS || WL_CFG80211_P2P_DEV_IF) */
 
 	wdev->wiphy =
 	    wiphy_new(&wl_cfg80211_ops, sizeof(struct wl_priv));
@@ -7306,18 +7292,12 @@ static s32 wl_setup_wiphy(struct wireless_dev *wdev, struct device *sdiofunc_dev
 		| BIT(NL80211_IFTYPE_AP);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)) && \
-	(defined(WL_IFACE_COMB_NUM_CHANNELS) || defined(WL_CFG80211_P2P_DEV_IF))
-	if (dhd && dhd->op_mode == DHD_FLAG_HOSTAP_MODE) {
-		WL_DBG(("Setting interface combinations for SoftAP mode\n"));
-		wdev->wiphy->iface_combinations = softap_iface_combinations;
+	(defined(WL_IFACE_COMB_NUM_CHANNELS) || \
+	defined(WL_CFG80211_P2P_DEV_IF))
+	WL_DBG(("Setting interface combinations for common mode\n"));
+	wdev->wiphy->iface_combinations = common_iface_combinations;
 		wdev->wiphy->n_iface_combinations =
-			ARRAY_SIZE(softap_iface_combinations);
-	} else {
-		WL_DBG(("Setting interface combinations for STA+P2P mode\n"));
-		wdev->wiphy->iface_combinations = sta_p2p_iface_combinations;
-		wdev->wiphy->n_iface_combinations =
-			ARRAY_SIZE(sta_p2p_iface_combinations);
-	}
+		ARRAY_SIZE(common_iface_combinations);
 #endif /* LINUX_VER >= 3.0 && (WL_IFACE_COMB_NUM_CHANNELS || WL_CFG80211_P2P_DEV_IF) */
 
 	wdev->wiphy->bands[IEEE80211_BAND_2GHZ] = &__wl_band_2ghz;

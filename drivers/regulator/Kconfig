@@ -270,6 +270,13 @@ config REGULATOR_S2MPS11
 	 S2MPS11 provide stable power to the ARM core/cache, internal logic,
 	 memory, camera processor, and sub-regulators
 
+config REGULATOR_S2ABB01
+	bool "SAMSUNG Electronics S2ABB01 PMIC Support"
+	depends on I2C=y
+	select REGMAP_I2C
+	help
+	 This driver controls Samsung S2ABB01 regulator.
+
 config REGULATOR_AB3100
 	tristate "ST-Ericsson AB3100 Regulator functions"
 	depends on AB3100_CORE

@@ -42,7 +42,19 @@ static struct mfd_cell max77803_devs[] = {
 	{ .name = "max77803-safeout", },
 	{ .name = "max77803-haptic", },
 };
+/* WA for MUIC RESET */
+static u8 muic_reg_snapshot[MAX77803_MUIC_REG_END];
 
+static void max77888_reg_snapshot(u8 reg, u8 value)
+{
+	if (reg < MAX77803_MUIC_REG_END)
+		muic_reg_snapshot[reg] = value;
+}
+u8 max77888_restore_last_snapshot(u8 reg)
+{
+	return muic_reg_snapshot[reg];
+}
+/* WA for MUIC RESET */
 int max77803_read_reg(struct i2c_client *i2c, u8 reg, u8 *dest)
 {
 	struct max77803_dev *max77803 = i2c_get_clientdata(i2c);
@@ -81,6 +93,10 @@ int max77803_write_reg(struct i2c_client *i2c, u8 reg, u8 value)
 	int ret;
 
 	mutex_lock(&max77803->iolock);
+/* WA for MUIC RESET */
+	if (i2c->addr == I2C_ADDR_MUIC)
+		max77888_reg_snapshot(reg, value);
+/* WA for MUIC RESET */
 	ret = i2c_smbus_write_byte_data(i2c, reg, value);
 	mutex_unlock(&max77803->iolock);
 	return ret;
@@ -112,12 +128,35 @@ int max77803_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask)
 	if (ret >= 0) {
 		u8 old_val = ret & 0xff;
 		u8 new_val = (val & mask) | (old_val & (~mask));
+/* WA for MUIC RESET */
+		if (i2c->addr == I2C_ADDR_MUIC)
+			max77888_reg_snapshot(reg, new_val);
+/* WA for MUIC RESET */
 		ret = i2c_smbus_write_byte_data(i2c, reg, new_val);
 	}
 	mutex_unlock(&max77803->iolock);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(max77803_update_reg);
+
+
+#ifdef CONFIG_FAST_BOOT
+static int muic_fsd_notifier_call(struct notifier_block *nb, unsigned long cmd,
+				void *_param)
+{
+	struct max77803_dev *max77803 = container_of(nb, struct max77803_dev,
+						fsd_notifier_block);
+	bool is_attached_something = max77803_get_current_acc();
+
+	pr_info("%s: Now attached %d\n", __func__, is_attached_something);
+	if (is_attached_something) {
+		pr_info("%s: some devices are attached, but ...\n", __func__);
+		max77803->is_irq_in_fsd = true;
+	}
+
+	return 0;
+}
+#endif
 
 static int max77803_i2c_probe(struct i2c_client *i2c,
 			      const struct i2c_device_id *id)
@@ -145,6 +184,11 @@ static int max77803_i2c_probe(struct i2c_client *i2c,
 	} else
 		goto err;
 
+#ifdef CONFIG_FAST_BOOT
+	max77803->is_irq_in_fsd = false;
+	max77803->fsd_notifier_block.notifier_call = muic_fsd_notifier_call;
+	register_fake_shut_down_notifier(&max77803->fsd_notifier_block);
+#endif
 	mutex_init(&max77803->iolock);
 
 	if (max77803_read_reg(i2c, MAX77803_PMIC_REG_PMIC_ID2, &reg_data) < 0) {
@@ -196,6 +240,9 @@ static int max77803_i2c_remove(struct i2c_client *i2c)
 	struct max77803_dev *max77803 = i2c_get_clientdata(i2c);
 
 	mfd_remove_devices(max77803->dev);
+#ifdef CONFIG_FAST_BOOT
+	unregister_fake_shut_down_notifier(&max77803->fsd_notifier_block);
+#endif
 	i2c_unregister_device(max77803->muic);
 	i2c_unregister_device(max77803->haptic);
 	kfree(max77803);
@@ -231,9 +278,24 @@ static int max77803_resume(struct device *dev)
 
 	return max77803_irq_resume(max77803);
 }
+
+static void max77803_complete(struct device *dev)
+{
+#ifdef CONFIG_FAST_BOOT
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+	struct max77803_dev *max77803 = i2c_get_clientdata(i2c);
+
+	if (fake_shut_down && max77803->is_irq_in_fsd) {
+		pr_info("%s there is an irq during fake shut down\n", __func__);
+		kernel_power_off();
+	}
+	max77803->is_irq_in_fsd = false;
+#endif
+}
 #else
 #define max77803_suspend	NULL
 #define max77803_resume		NULL
+#define max77803_complete	NULL
 #endif /* CONFIG_PM */
 
 #ifdef CONFIG_HIBERNATION
@@ -364,6 +426,7 @@ static int max77803_restore(struct device *dev)
 const struct dev_pm_ops max77803_pm = {
 	.suspend = max77803_suspend,
 	.resume = max77803_resume,
+	.complete = max77803_complete,
 #ifdef CONFIG_HIBERNATION
 	.freeze =  max77803_freeze,
 	.thaw = max77803_restore,

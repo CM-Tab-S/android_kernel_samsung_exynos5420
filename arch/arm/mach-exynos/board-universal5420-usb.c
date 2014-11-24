@@ -94,7 +94,7 @@ static struct dwc3_exynos_data universal5420_drd_pdata __initdata = {
 	.vbus_irq		= -1,
 };
 
-#if defined(CONFIG_V1A) || defined(CONFIG_V2A) || defined(CONFIG_CHAGALL)
+#if defined(CONFIG_V1A) || defined(CONFIG_V2A)
 void usb30_redriver_en(int enable)
 {
 	struct regulator *regulator;
@@ -119,7 +119,7 @@ void usb30_redriver_en(int enable)
 		regulator_put(regulator);
 	}
 }
-#else
+#elif defined(CONFIG_HA_3G)
 void usb30_redriver_en(int enable)
 {
 	int err;

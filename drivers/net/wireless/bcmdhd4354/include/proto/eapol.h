@@ -5,9 +5,15 @@
  * IEEE Std 802.1X-2001
  * IEEE 802.1X RADIUS Usage Guidelines
  *
+<<<<<<< HEAD
  * Copyright (C) 2002 Broadcom Corporation
  *
  * $Id: eapol.h 382882 2013-02-04 23:24:31Z $
+=======
+ * Copyright Open Broadcom Corporation
+ *
+ * $Id: eapol.h 452678 2014-01-31 19:16:29Z $
+>>>>>>> b682b99... importet sammy NJ2
  */
 
 #ifndef _eapol_h_

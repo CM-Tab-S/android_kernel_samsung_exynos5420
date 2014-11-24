@@ -986,7 +986,7 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 	 * If any port-status changes do occur during this delay, khubd
 	 * will see them later and handle them normally.
 	 */
-#if defined(CONFIG_LINK_DEVICE_HSIC)
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 	if (need_debounce_delay && type != HUB_RESET_RESUME) {
 #else
 	if (need_debounce_delay) {
@@ -1409,19 +1409,9 @@ static int hub_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	desc = intf->cur_altsetting;
 	hdev = interface_to_usbdev(intf);
 
-	/*
-	 * Hubs have proper suspend/resume support, except for root hubs
-	 * where the controller driver doesn't have bus_suspend and
-	 * bus_resume methods.
-	 */
-	if (hdev->parent) {		/* normal device */
+	/* Hubs have proper suspend/resume support. */
+	if (!hdev->parent)
 		usb_enable_autosuspend(hdev);
-	} else {			/* root hub */
-		const struct hc_driver *drv = bus_to_hcd(hdev->bus)->driver;
-
-		if (drv->bus_suspend && drv->bus_resume)
-			usb_enable_autosuspend(hdev);
-	}
 
 	if (hdev->level == MAX_TOPO_LEVEL) {
 		dev_err(&intf->dev,
@@ -2804,7 +2794,7 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 		/* drive resume for at least 20 msec */
 		dev_dbg(&udev->dev, "usb %sresume\n",
 				(PMSG_IS_AUTO(msg) ? "auto-" : ""));
-		msleep(25);
+		msleep(30);
 
 		/* Virtual root hubs can trigger on GET_PORT_STATUS to
 		 * stop resume signaling.  Then finish the resume
@@ -2814,10 +2804,19 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 
 		/* TRSMRCY = 10 msec */
 		msleep(10);
+
+		if(udev->quirks & USB_QUIRK_HSIC_TUNE) {
+			/* If portstatus's still resuming, retry GET_PORT_STATUS */
+			if (portstatus & USB_PORT_STAT_SUSPEND) {
+				usleep_range(5000, 10000);
+				status = hub_port_status(hub, port1,
+						&portstatus, &portchange);
+			}
+		}
 	}
 
  SuspendCleared:
-#if defined(CONFIG_LINK_DEVICE_HSIC)
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 	pr_info("mif: %s: %d, %d\n", __func__, portstatus, portchange);
 #endif
 	if (status == 0) {
@@ -3240,9 +3239,15 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 					buf->bMaxPacketSize0;
 			kfree(buf);
 
-			retval = hub_port_reset(hub, port1, udev, delay, false);
-			if (retval < 0)		/* error or disconnect */
-				goto fail;
+#if defined(CONFIG_MDM_HSIC_PM) || defined(CONFIG_LINK_DEVICE_HSIC)
+			if(!(udev->quirks & USB_QUIRK_HSIC_TUNE)) {
+#endif
+				retval = hub_port_reset(hub, port1, udev, delay, false);
+				if (retval < 0)		/* error or disconnect */
+					goto fail;
+#if defined(CONFIG_MDM_HSIC_PM) || defined(CONFIG_LINK_DEVICE_HSIC)
+			}
+#endif
 			if (oldspeed != udev->speed) {
 				dev_dbg(&udev->dev,
 					"device reset changed speed!\n");
@@ -3490,7 +3495,7 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 			 * remote wakeup event.
 			 */
 			status = usb_remote_wakeup(udev);
-#if defined(CONFIG_LINK_DEVICE_HSIC)
+#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 		} else if (udev->state == USB_STATE_CONFIGURED &&
 			udev->persist_enabled &&
 			udev->dev.power.runtime_status == RPM_RESUMING) {
@@ -3501,7 +3506,8 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 #endif
 #endif
 		} else {
-#if defined(CONFIG_USB_SUSPEND) && defined(CONFIG_LINK_DEVICE_HSIC)
+#if defined(CONFIG_USB_SUSPEND) && defined(CONFIG_LINK_DEVICE_HSIC) || \
+			defined(CONFIG_MDM_HSIC_PM)
 			pr_info("%s: ENODEV, udev->state=%d, rpm=%d\n",
 				__func__, udev->state,
 				udev->dev.power.runtime_status);

@@ -23,26 +23,25 @@
 #include <plat/gpio-cfg.h>
 #include <plat/regs-fb-v4.h>
 #include <plat/mipi_dsi.h>
+#include <plat/regs-mipidsim.h>
 #include <mach/map.h>
+#include <asm/system_info.h>
 
-#ifdef CONFIG_FB_S5P_MDNIE_LITE
-#include <linux/mdnie.h>
-#endif
-
-
-#define GPIO_LCDP_SDA_18V	EXYNOS5420_GPB3(2)
-#define GPIO_LCDP_SCL_18V	EXYNOS5420_GPB3(3)
-
-#define GPIO_TOUCH_LDO_EN	EXYNOS5420_GPG1(2)
-#define GPIO_LCD_EN		EXYNOS5420_GPG1(2)
-
+/* #define GPIO_SL_SDA_18V	EXYNOS5420_GPB3(2) */
+/* #define GPIO_SL_SCL_18V	EXYNOS5420_GPB3(3) */
+/* #define GPIO_LCD_EN		EXYNOS5420_GPG1(2) */
+/* #define GPIO_PSR_TE		EXYNOS5420_GPJ4(0) */
 #define GPIO_TCON_INTR		EXYNOS5420_GPX3(5)
 #define GPIO_TCON_RDY		EXYNOS5420_GPX3(6)
 
-#define LCD_POWER_ON_TIME_US   (500 * USEC_PER_MSEC)
+/* Not used, PMIC using I2C control */
+/* #define GPIO_MIPI_18V_EN	EXYNOS5420_GPY3(2) */
+
+static int tcon_irq = -EINVAL;
 
 unsigned int lcdtype;
 EXPORT_SYMBOL(lcdtype);
+
 static int __init lcdtype_setup(char *str)
 {
 	get_option(&str, &lcdtype);
@@ -95,36 +94,65 @@ static void chagall_fimd_gpio_setup_24bpp(void)
 static int mipi_lcd_power_control(struct mipi_dsim_device *dsim,
 				unsigned int power)
 {
-	pr_debug(" Chagall LCD %s  : power = %d\n", __func__, power);
-
-	if (power) {
-		int timeout = 5;
-
-		/* Power */
-		gpio_set_value(GPIO_LCD_EN, 1);
-		msleep_interruptible(300);
-
-		do {
-			if (gpio_get_value(GPIO_TCON_RDY))
-				break;
-			msleep(100);
-		} while (timeout--);
-
-		if (timeout < 0)
-			pr_err(" %s timeout...\n", __func__);
-	} else {
-		gpio_set_value(GPIO_LCD_EN, 0);
-		msleep(150);
-	}
 	return 0;
 }
+
+static int lcd_power_on(struct lcd_device *ld, int enable)
+{
+	struct regulator *regulator_1_9;
+
+	pr_debug(" Chagall LCD %s  : enable = %d\n", __func__, enable);
+
+	regulator_1_9 = regulator_get(NULL, "vtcon_1.9v");
+	if (enable) {
+		/* Power */
+		gpio_set_value(GPIO_LCD_EN, 1);
+		usleep_range(10000, 12000);
+		if(system_rev >= 3)
+			regulator_enable(regulator_1_9);
+	} else {
+		if (regulator_is_enabled(regulator_1_9))
+			regulator_disable(regulator_1_9);
+		usleep_range(5000, 10000);
+		gpio_set_value(GPIO_LCD_EN, 0);
+		usleep_range(15000,16000);
+	}
+	regulator_put(regulator_1_9);
+
+	return 0;
+}
+
+static int lcd_reset(struct lcd_device *ld)
+{
+	int timeout = 10;
+
+	pr_debug(" Chagall %s\n", __func__);
+
+	msleep_interruptible(150);
+	do {
+		if (gpio_get_value(GPIO_TCON_RDY))
+			break;
+		msleep(30);
+	} while (timeout--);
+	if (timeout < 0)
+		pr_err(" %s timeout...\n", __func__);
+	else
+		pr_info("%s duration: %d\n", __func__, 150+(10-timeout)*30);
+	return 0;
+}
+
+static struct lcd_platform_data s6tnmr7_platform_data = {
+	.power_on = lcd_power_on,
+	.reset = lcd_reset,
+	.pdata = &tcon_irq
+};
 
 #define SMDK5420_HBP 4
 #define SMDK5420_HFP 12
 #define SMDK5420_HFP_DSIM 12
 #define SMDK5420_HSP 4
 #define SMDK5420_VBP 3
-#define SMDK5420_VFP 3
+#define SMDK5420_VFP 10
 #define SMDK5420_VSW 1
 #define SMDK5420_XRES 2560
 #define SMDK5420_YRES 1600
@@ -170,6 +198,9 @@ static struct s3c_fb_platdata chagall_lcd1_pdata __initdata = {
 	.dsim_clk_on	= s5p_mipi_dsi_clk_enable_by_fimd,
 	.dsim_clk_off	= s5p_mipi_dsi_clk_disable_by_fimd,
 	.dsim1_device   = &s5p_device_mipi_dsim1.dev,
+#ifdef CONFIG_FB_HW_TRIGGER
+	.dsim_get_state = lcd_get_mipi_state,
+#endif
 };
 
 #define DSIM_L_MARGIN SMDK5420_HBP
@@ -191,11 +222,12 @@ static struct mipi_dsim_lcd_config dsim_lcd_info = {
 	.lcd_size.width			= DSIM_WIDTH,
 	.lcd_size.height		= DSIM_HEIGHT,
 	.rgb_timing.stable_vfp		= 1,
-	.rgb_timing.cmd_allow		= 2,
+	.rgb_timing.cmd_allow		= 6,
 	.cpu_timing.cs_setup		= 1,
 	.cpu_timing.wr_setup		= 0,
 	.cpu_timing.wr_act		= 1,
 	.cpu_timing.wr_hold		= 0,
+	.mipi_ddi_pd			= &s6tnmr7_platform_data,
 };
 
 static struct mipi_dsim_config dsim_info = {
@@ -219,9 +251,9 @@ static struct mipi_dsim_config dsim_info = {
 	.s = 0,
 
 	/* D-PHY PLL stable time spec :min = 200usec ~ max 400usec */
-	.pll_stable_time = 22200,
+	.pll_stable_time = DPHY_PLL_STABLE_TIME,
 
-	.esc_clk = 7 * MHZ, /* escape clk : 8MHz */
+	.esc_clk = 16 * MHZ, /* escape clk : 8MHz */
 
 	/* stop state holding counter after bta change count 0 ~ 0xfff */
 	.stop_holding_cnt = 0x10,
@@ -236,87 +268,44 @@ static struct s5p_platform_mipi_dsim dsim_platform_data = {
 	.dsim_config		= &dsim_info,
 	.dsim_lcd_config	= &dsim_lcd_info,
 
-	.mipi_power		= mipi_lcd_power_control,
-	.part_reset		= NULL,
+	.mipi_power		= NULL,
 	.init_d_phy		= s5p_dsim_init_d_phy,
 	.get_fb_frame_done	= NULL,
 	.trigger		= NULL,
 
-	/*
-	 * The stable time of needing to write data on SFR
-	 * when the mipi mode becomes LP mode.
-	 */
-	.delay_for_stabilization = 600,
-};
-
-#ifdef CONFIG_FB_S5P_MDNIE_LITE
-static struct platform_mdnie_data mdnie_data = {
-	.display_type	= -1,
-};
-
-struct platform_device mdnie_device = {
-	.name	= "mdnie",
-	.id	= -1,
-	.dev	= {
-		.parent		= &s5p_device_fimd1.dev,
-		.platform_data = &mdnie_data,
-	},
-};
-
-static void __init mdnie_device_register(void)
-{
-	int ret;
-
-	ret = platform_device_register(&mdnie_device);
-	if (ret)
-		printk(KERN_ERR "failed to register mdnie device: %d\n",
-				ret);
-}
+#if defined(CONFIG_FB_HW_TRIGGER)
+	.trigger_set = s3c_fb_enable_trigger_forcing,
+	.fimd1_device = &s5p_device_fimd1.dev,
 #endif
+};
+
+static const char * const keep_clock_arr[] = {
+	"lcd",
+	"axi_disp1",
+	"aclk_200_disp1",
+	"mout_spll",
+	"sclk_mipi1"
+};
 
 /* Keep on clock of FIMD during boot time  */
-static int keep_lcd_clk(struct device *dev)
+static int keep_lcd_clk(struct device *dev, int en)
 {
 	struct clk *lcd_clk;
+	int i;
 
-	lcd_clk = clk_get(dev, "lcd");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get fimd clock for keep screen on\n");
-	} else {
-		clk_enable(lcd_clk);
-		clk_put(lcd_clk);
-	}
+	for (i = 0; i < ARRAY_SIZE(keep_clock_arr); i++) {
+		lcd_clk = clk_get(dev, keep_clock_arr[i]);
+		if (IS_ERR(lcd_clk)) {
+			pr_err("failed to get %s for keep screen on\n",
+					keep_clock_arr[i]);
+		} else {
+			if (en)
+				clk_enable(lcd_clk);
+			else
+				clk_disable(lcd_clk);
 
-	lcd_clk = clk_get(NULL, "axi_disp1");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get axi_disp1 clock for keep screen on\n");
-	} else {
-		clk_enable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "aclk_200_disp1");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get aclk_200_disp1 clock for keep screen on\n");
-	} else {
-		clk_enable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "mout_spll");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get mout_spll clock for keep screen on\n");
-	} else {
-		clk_enable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "sclk_mipi1");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get mout_spll clock for keep screen on\n");
-	} else {
-		clk_enable(lcd_clk);
-		clk_put(lcd_clk);
+			clk_put(lcd_clk);
+		}
 	}
 
 	return 0;
@@ -324,51 +313,7 @@ static int keep_lcd_clk(struct device *dev)
 
 static int __init restore_lcd_clk_late_init(void)
 {
-	struct clk *lcd_clk;
-	struct device *fimd_dev = &s5p_device_fimd1.dev;
-
-	pr_debug("%s\n", __func__);
-
-	lcd_clk = clk_get(fimd_dev, "lcd");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get fimd clock for keep screen on\n");
-	} else {
-		clk_disable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "axi_disp1");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get axi_disp1 clock for keep screen on\n");
-	} else {
-		clk_disable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "aclk_200_disp1");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get aclk_200_disp1 clock for keep screen on\n");
-	} else {
-		clk_disable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "mout_spll");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get mout_spll clock for keep screen on\n");
-	} else {
-		clk_disable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
-	lcd_clk = clk_get(NULL, "sclk_mipi1");
-	if (IS_ERR(lcd_clk)) {
-		pr_err("failed to get mout_spll clock for keep screen on\n");
-	} else {
-		clk_disable(lcd_clk);
-		clk_put(lcd_clk);
-	}
-
+	keep_lcd_clk(&s5p_device_fimd1.dev, 0);
 	return 0;
 }
 
@@ -386,8 +331,19 @@ void __init exynos5_universal5420_display_init(void)
 	struct clk *mout_mdnie1;
 	struct clk *mout_mpll;
 
+	/* GPIO CONFIG */
 	gpio_request(GPIO_LCD_EN, "LCD_EN");
-	gpio_request(GPIO_TCON_RDY, "TCON_RDY");
+	gpio_request_one(GPIO_TCON_RDY, GPIOF_IN, "TCON_RDY");
+
+	gpio_request(GPIO_TCON_INTR, "TCON_INTR");
+	s3c_gpio_setpull(GPIO_TCON_INTR, S3C_GPIO_PULL_DOWN);
+	s5p_register_gpio_interrupt(GPIO_TCON_INTR);
+	tcon_irq = gpio_to_irq(GPIO_TCON_INTR);
+
+#if defined(CONFIG_FB_HW_TRIGGER)
+	gpio_request(GPIO_PSR_TE, "PSR_TE");
+	s3c_gpio_cfgpin(GPIO_PSR_TE, S3C_GPIO_SFN(2));
+#endif
 
 	s5p_dsim1_set_platdata(&dsim_platform_data);
 	s5p_fimd1_set_platdata(&chagall_lcd1_pdata);
@@ -413,13 +369,9 @@ void __init exynos5_universal5420_display_init(void)
 		clk_put(mout_mpll);
 
 	exynos5_fimd1_setup_clock(&s5p_device_fimd1.dev,
-			"sclk_fimd", "mout_mdnie1", 267 * MHZ);
+			"sclk_fimd", "mout_mdnie1", 266 * MHZ);
 
-#ifdef CONFIG_FB_S5P_MDNIE_LITE
-	mdnie_device_register();
-#endif
-
-	keep_lcd_clk(&s5p_device_fimd1.dev);
+	keep_lcd_clk(&s5p_device_fimd1.dev, 1);
 
 	res = platform_get_resource(&s5p_device_fimd1, IORESOURCE_MEM, 1);
 	if (res) {

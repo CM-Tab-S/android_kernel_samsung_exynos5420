@@ -115,7 +115,7 @@ static struct max77803_led_platform_data max77803_led_pdata = {
 	.leds[0].timer = MAX77803_FLASH_TIME_187P5MS,
 	.leds[0].timer_mode = MAX77803_TIMER_MODE_MAX_TIMER,
 	.leds[0].cntrl_mode = MAX77803_LED_CTRL_BY_FLASHSTB,
-#if defined(CONFIG_MACH_V1A) || defined(CONFIG_MACH_N1A) || defined(CONFIG_N2A)
+#if defined(CONFIG_MACH_V1A) || defined(CONFIG_MACH_N1A) || defined(CONFIG_N2A) || defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT) 
 	.leds[0].brightness = 0x32, // Max77888 : 19.53mA+0x32*19.53 = 996.03 mA
 #else
 	.leds[0].brightness = 0x3D,
@@ -132,7 +132,7 @@ static struct max77803_led_platform_data max77803_led_pdata = {
 #ifdef CONFIG_VIBETONZ
 static struct max77803_haptic_platform_data max77803_haptic_pdata = {
 	.max_timeout = 10000,
-#if defined(CONFIG_N2A)
+#if defined(CONFIG_N2A) || defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT)
 	.duty = 32775,
 #else
 	.duty = 34500,
@@ -141,7 +141,7 @@ static struct max77803_haptic_platform_data max77803_haptic_pdata = {
 	.reg2 = MOTOR_LRA | EXT_PWM | DIVIDER_128,
 	.init_hw = NULL,
 	.motor_en = NULL,
-#if defined(CONFIG_N1A) || defined(CONFIG_N2A) || defined(CONFIG_V2A) || defined(CONFIG_CHAGALL)
+#if defined(CONFIG_N1A) || defined(CONFIG_N2A) || defined(CONFIG_V2A) || defined(CONFIG_CHAGALL) || defined(CONFIG_KLIMT)
 	.pwm_id = 1,
 #else
 	.pwm_id = 0,

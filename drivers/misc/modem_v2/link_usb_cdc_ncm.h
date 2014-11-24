@@ -33,7 +33,7 @@
 /* Restart the timer, if amount of datagrams is less than given value */
 #define	CDC_NCM_RESTART_TIMER_DATAGRAM_CNT	3
 #define	CDC_NCM_TIMER_PENDING_CNT		2
-#define CDC_NCM_TIMER_INTERVAL			(400UL * NSEC_PER_USEC)
+#define CDC_NCM_TIMER_INTERVAL			(500UL * NSEC_PER_USEC)
 
 /* The following macro defines the minimum header space */
 #define	CDC_NCM_MIN_HDR_SIZE \

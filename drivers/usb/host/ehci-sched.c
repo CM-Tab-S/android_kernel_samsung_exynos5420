@@ -560,7 +560,7 @@ static int qh_link_periodic (struct ehci_hcd *ehci, struct ehci_qh *qh)
 	unsigned	i;
 	unsigned	period = qh->period;
 
-#if !defined(CONFIG_LINK_DEVICE_HSIC)
+#if !defined(CONFIG_LINK_DEVICE_HSIC) && !defined(CONFIG_QC_MODEM)
 	dev_dbg (&qh->dev->dev,
 		"link qh%d-%04x/%p start %d [%d/%d us]\n",
 		period, hc32_to_cpup(ehci, &qh->hw->hw_info2)
@@ -644,7 +644,7 @@ static int qh_unlink_periodic(struct ehci_hcd *ehci, struct ehci_qh *qh)
 		? ((qh->usecs + qh->c_usecs) / qh->period)
 		: (qh->usecs * 8);
 
-#if !defined(CONFIG_LINK_DEVICE_HSIC)
+#if !defined(CONFIG_LINK_DEVICE_HSIC) && !defined(CONFIG_QC_MODEM)
 	dev_dbg (&qh->dev->dev,
 		"unlink qh%d-%04x/%p start %d [%d/%d us]\n",
 		qh->period,
@@ -885,7 +885,7 @@ static int qh_schedule(struct ehci_hcd *ehci, struct ehci_qh *qh)
 			: cpu_to_hc32(ehci, QH_SMASK);
 		hw->hw_info2 |= c_mask;
 	}
-#if !defined(CONFIG_LINK_DEVICE_HSIC)
+#if !defined(CONFIG_LINK_DEVICE_HSIC) && !defined(CONFIG_QC_MODEM)
 	else
 		ehci_dbg (ehci, "reused qh %p schedule\n", qh);
 #endif

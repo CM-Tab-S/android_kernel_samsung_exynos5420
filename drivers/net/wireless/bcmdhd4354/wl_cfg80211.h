@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfg80211.h 449122 2014-01-16 07:23:11Z $
+ * $Id: wl_cfg80211.h 457855 2014-02-25 01:27:41Z $
  */
 
 #ifndef _wl_cfg80211_h_
@@ -186,12 +186,12 @@ do {									\
 
 #define WL_PM_ENABLE_TIMEOUT 10000
 
-#if defined(CUSTOMER_HW4)
-/* Custom IBSS beacon parameters */
+#ifdef WLAIBSS
+/* Custom AIBSS beacon parameters */
 #define AIBSS_INITIAL_MIN_BCN_DUR	500
 #define AIBSS_MIN_BCN_DUR		5000
 #define AIBSS_BCN_FLOOD_DUR		5000
-#endif /* CUSTOMER_HW4 */
+#endif /* WLAIBSS */
 
 /* driver status */
 enum wl_status {
@@ -828,10 +828,13 @@ wl_get_netinfo_by_netdev(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 	((wdev->iftype == NL80211_IFTYPE_P2P_DEVICE) ? \
 	bcmcfg_to_prmry_ndev(cfg) : wdev_to_ndev(wdev))
 #define cfgdev_to_wlc_ndev(cfgdev, cfg)	wdev_to_wlc_ndev(cfgdev, cfg)
+#define bcmcfg_to_prmry_cfgdev(cfgdev, cfg) bcmcfg_to_prmry_wdev(cfg)
 #elif defined(WL_ENABLE_P2P_IF)
 #define cfgdev_to_wlc_ndev(cfgdev, cfg)	ndev_to_wlc_ndev(cfgdev, cfg)
+#define bcmcfg_to_prmry_cfgdev(cfgdev, cfg) bcmcfg_to_prmry_ndev(cfg)
 #else
 #define cfgdev_to_wlc_ndev(cfgdev, cfg)	(cfgdev)
+#define bcmcfg_to_prmry_cfgdev(cfgdev, cfg) (cfgdev)
 #endif /* WL_CFG80211_P2P_DEV_IF */
 
 #if defined(WL_CFG80211_P2P_DEV_IF)
@@ -1028,5 +1031,7 @@ extern int wl_cfg80211_enable_roam_offload(struct net_device *dev, bool enable);
 #ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
 struct net_device *wl_cfg80211_get_remain_on_channel_ndev(struct bcm_cfg80211 *cfg);
 #endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
+
+extern int wl_cfg80211_get_ioctl_version(void);
 
 #endif				/* _wl_cfg80211_h_ */

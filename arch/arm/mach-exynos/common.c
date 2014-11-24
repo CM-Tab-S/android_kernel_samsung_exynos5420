@@ -252,9 +252,36 @@ static struct map_desc exynos4210_iodesc_rev_0[] __initdata = {
 };
 
 static struct map_desc exynos4210_iodesc_rev_1[] __initdata = {
+<<<<<<< HEAD
+=======
 	{
 		.virtual	= (unsigned long)S5P_VA_SYSRAM,
 		.pfn		= __phys_to_pfn(EXYNOS4_PA_SYSRAM1),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	},
+};
+
+static struct map_desc exynos4x12_iodesc[] __initdata = {
+>>>>>>> b682b99... importet sammy NJ2
+	{
+		.virtual	= (unsigned long)S5P_VA_DMC0,
+		.pfn		= __phys_to_pfn(EXYNOS4_PA_DMC0_4X12),
+		.length		= SZ_64K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_DMC1,
+		.pfn		= __phys_to_pfn(EXYNOS4_PA_DMC1_4X12),
+		.length		= SZ_64K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_SYSRAM,
+		.pfn		= __phys_to_pfn(EXYNOS4_PA_SYSRAM1),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_SYSRAM_NS,
+		.pfn		= __phys_to_pfn(EXYNOS4_PA_SYSRAM_NS_4X12),
 		.length		= SZ_4K,
 		.type		= MT_DEVICE,
 	},
@@ -609,6 +636,13 @@ static void __init exynos4_map_io(void)
 	s5p_hdmi_setname("exynos4-hdmi");
 }
 
+static int exynos_finish_map_io = 0;
+
+int exynos_is_finish_map_io(void)
+{
+	return exynos_finish_map_io;
+}
+
 static void __init exynos5_map_io(void)
 {
 	iotable_init(exynos5_iodesc, ARRAY_SIZE(exynos5_iodesc));
@@ -648,6 +682,11 @@ static void __init exynos5_map_io(void)
 #ifdef CONFIG_S5P_DEV_ACE
 	s5p_ace_setname("exynos-ace");
 #endif
+<<<<<<< HEAD
+=======
+
+	exynos_finish_map_io = 1;
+>>>>>>> b682b99... importet sammy NJ2
 }
 
 static void __init exynos4_init_clocks(int xtal)
@@ -756,6 +795,7 @@ static void __init combiner_cascade_irq(unsigned int combiner_nr, unsigned int i
 }
 
 static void combiner_resume(struct irq_data *data)
+<<<<<<< HEAD
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(data);
 
@@ -766,6 +806,18 @@ static void combiner_resume(struct irq_data *data)
 static int combiner_set_affinity(struct irq_data *d,
 					const struct cpumask *dest, bool force)
 {
+=======
+{
+	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(data);
+
+	__raw_writel(~gc->mask_cache, gc->reg_base + COMBINER_ENABLE_CLEAR);
+	__raw_writel(gc->mask_cache, gc->reg_base + COMBINER_ENABLE_SET);
+}
+
+static int combiner_set_affinity(struct irq_data *d,
+					const struct cpumask *dest, bool force)
+{
+>>>>>>> b682b99... importet sammy NJ2
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
 	struct cpumask target_affinity;
 	unsigned int i;
@@ -798,6 +850,7 @@ static int combiner_set_affinity(struct irq_data *d,
 		ret = -EINVAL;
 		goto out;
 	}
+<<<<<<< HEAD
 
 	ret = irq_set_affinity(combiner_data[combiner_nr].parent_irq,
 			       &target_affinity);
@@ -816,6 +869,26 @@ static void __init combiner_init(unsigned int combiner_nr, void __iomem *base,
 	struct irq_chip_generic *gc;
 	struct irq_chip_type *ct;
 
+=======
+
+	ret = irq_set_affinity(combiner_data[combiner_nr].parent_irq,
+			       &target_affinity);
+	if (ret >= 0)
+		cpumask_copy(&combiner_data[combiner_nr].affinity[sub_irq],
+			     &target_affinity);
+out:
+	spin_unlock_irqrestore(&combiner_data[combiner_nr].lock, flags);
+	return ret;
+}
+
+static void __init combiner_init(unsigned int combiner_nr, void __iomem *base,
+				 unsigned int irq_start)
+{
+	unsigned int i;
+	struct irq_chip_generic *gc;
+	struct irq_chip_type *ct;
+
+>>>>>>> b682b99... importet sammy NJ2
 	if (is_max_combiner_nr_bad(combiner_nr))
 		BUG();
 	combiner_data[combiner_nr].base = base;

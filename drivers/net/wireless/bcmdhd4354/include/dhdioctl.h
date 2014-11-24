@@ -25,7 +25,11 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
+<<<<<<< HEAD
  * $Id: dhdioctl.h 424863 2013-09-19 20:06:14Z $
+=======
+ * $Id: dhdioctl.h 454792 2014-02-11 20:40:19Z $
+>>>>>>> b682b99... importet sammy NJ2
  */
 
 #ifndef _dhdioctl_h_

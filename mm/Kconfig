@@ -399,6 +399,7 @@ config FRONTSWAP
 
 config ZSMALLOC_NEW
 	tristate "Memory allocator for compressed pages"
+	depends on !ZSMALLOC
 	default n
 	help
 	  zsmalloc is a slab-based memory allocator designed to store
@@ -435,6 +436,21 @@ config ZSWAP
 	  from this compressed store much faster than most tradition
 	  swap devices resulting in reduced I/O and faster performance
 	  for many workloads.
+
+config ZSWAP_ENABLE_WRITEBACK
+	bool "Enable writeback"
+	depends on ZSWAP
+	default n
+
+config INCREASE_MAXIMUM_SWAPPINESS
+	bool "Allow swappiness to be set up to 200"
+	depends on ZSWAP
+	default n
+
+config FIX_INACTIVE_RATIO
+	bool "Fix active:inactive anon ratio to 1:1"
+	depends on ZSWAP
+	default n
 
 config SWAP_ENABLE_READAHEAD
 	bool "Enable readahead on page swap in"

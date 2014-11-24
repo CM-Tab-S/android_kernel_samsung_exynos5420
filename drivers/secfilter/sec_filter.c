@@ -25,26 +25,50 @@ static  struct  cdev    url_cdev;
 static  struct  class   *url_class  = NULL;
 
 static  DECLARE_WAIT_QUEUE_HEAD(user_noti_Q);
-static  tcp_Info_Manager    *getting_TrackInfo= NULL;
+static  tcp_Info_Manager    *getting_TrackInfo = NULL;
 static  tcp_Info_Manager    *notifying_TrackInfo = NULL;
 static  tcp_Info_Manager    *notified_TrackInfo = NULL;
 static  tcp_Info_Manager    *rejected_TrackInfo	= NULL;
 static  char                *exceptionURL       = NULL;
-
+static  atomic_t            totalReference      = ATOMIC_INIT(0);
+static  unsigned long       resetTime           = 0;
+static  int                 closingTime         = 60;
 char    *errorMsg   = NULL;
 int     errMsgSize  = 0;
 int     filterMode  = FILTER_MODE_OFF;
+
+#ifdef CONFIG_SEC_NET_FILTER
+int nfqnl_enqueue_packet(struct nf_queue_entry *entry, unsigned int queuenum);
+#endif
+
 //  sec_filter driver open function
 int sec_url_filter_open(struct inode *inode, struct file *filp)
 {
-    printk(KERN_ALERT "SEC URL FILTER OPEN %d\n", current->cred->gid);
+    atomic_inc(&totalReference);
     return 0;
 }
 
 //  sec_filter driver release function
 int sec_url_filter_release( struct inode *inode, struct file *filp)
 {
-    return 0;
+     if (atomic_dec_and_test(&totalReference))
+    {
+    	if (filterMode != FILTER_MODE_OFF)
+    	{
+            resetTime   = get_jiffies_64()+closingTime*HZ;
+            filterMode  = FILTER_MODE_CLOSING;
+    	}
+        wake_up_interruptible(&user_noti_Q);
+        clean_tcp_TrackInfos(getting_TrackInfo);
+        clean_tcp_TrackInfos(rejected_TrackInfo);
+        clean_tcp_TrackInfos(notifying_TrackInfo);
+        clean_tcp_TrackInfos(notified_TrackInfo);
+        SEC_FREE(exceptionURL);
+        SEC_FREE(errorMsg);
+        errMsgSize  = 0;
+        printk(KERN_ALERT "SEC_URL_FILTER : FILE HANDLE IS 0\r\n");
+    }
+   return 0;
 }
 
 //  sec_filter driver write function
@@ -74,8 +98,9 @@ ssize_t sec_url_filter_write( struct file *filp, const char *buf, size_t count, 
                             clean_tcp_TrackInfos(notified_TrackInfo);
                             SEC_FREE(exceptionURL);
                             SEC_FREE(errorMsg);
+                            errMsgSize  = 0;
                         }
-                        printk(KERN_INFO "SEC URL Filter Mode : %d\n", filterMode);
+                        printk(KERN_INFO "SEC_URL_Filter : Mode is %d\n", filterMode);
                     }
                     break;
                     case SET_USER_SELECT:   //version 2, id 4, choice 2
@@ -85,14 +110,14 @@ ssize_t sec_url_filter_write( struct file *filp, const char *buf, size_t count, 
                         int             choice      = *((int *)(data+sizeof(unsigned int)));
                         unsigned int    verdict     = NF_DROP;
                         struct nf_queue_entry *entry= NULL;
-                        selectInfo	= find_tcp_TrackInfo_withID(notified_TrackInfo, id, 1);
+                        selectInfo	= find_tcp_TrackInfo_withID(notified_TrackInfo, id);
                         if (selectInfo != NULL)
                         {
                             result  = count;
                             entry   = (struct nf_queue_entry *)selectInfo->q_entry;
                             selectInfo->q_entry = NULL;
                             selectInfo->status  = choice;
-                            if (choice == ALLOW || ((filterMode == FILTER_MODE_ON_RESPONSE)||(filterMode == FILTER_MODE_ON_RESPONSE_REFER)))
+                            if (choice == ALLOW || ((filterMode%10) == FILTER_MODE_ON_RESPONSE))
                             {
                                 verdict	= NF_ACCEPT;    //Response case should send packet
                             }
@@ -108,7 +133,7 @@ ssize_t sec_url_filter_write( struct file *filp, const char *buf, size_t count, 
                         }
                         else
                         {
-                            printk("SEC_FILTER_URL : NO SUCH ID\n");
+                            printk("SEC_URL_FILTER : NO SUCH ID\n");
                         }
                     }
                     break;
@@ -138,6 +163,17 @@ ssize_t sec_url_filter_write( struct file *filp, const char *buf, size_t count, 
                         }
                     }
                     break;
+                    case    SET_CLOSING_TIME:
+                    {
+                        int timedata = *((int *)(data));
+                        if ((timedata > 0) && (timedata <60))
+                        {
+                            closingTime = *(int *)data;
+                            printk("SEC_URL_FILTER : TIMER IS %d\n", closingTime);
+                        }
+                        result = count;
+                    }
+                    break;
                 }
             }
         }
@@ -153,9 +189,10 @@ ssize_t	sec_url_filter_read( struct file *filp, char *buf, size_t count, loff_t 
     int             leftLen     = 0;
     int             writeCount  = count;
     int             notifyFlag  = 0;
+    int             loopCount   = 0;
     if (buf != NULL)
     {
-        while (filterMode)
+        while ((filterMode)&&(loopCount < 3))
         {
             unsigned long   flags = 0;
             SEC_spin_lock_irqsave(&notifying_TrackInfo->tcp_info_lock, flags);
@@ -190,6 +227,7 @@ ssize_t	sec_url_filter_read( struct file *filp, char *buf, size_t count, loff_t 
             else
             {
                 interruptible_sleep_on(&user_noti_Q);
+                loopCount++;
             }
         }
     }
@@ -215,11 +253,25 @@ unsigned int sec_url_filter_hook( unsigned int hook_no,
                     int             delFlag     = 0;
                     struct tcphdr   *tcph       = (struct tcphdr *)skb_transport_header(skb);
                     tcp_TrackInfo   *rejected   = NULL;
+
+                    if (filterMode == FILTER_MODE_CLOSING)
+                    {
+                    	if (time_before((unsigned long)get_jiffies_64(), resetTime))
+                    	{
+                    	    verdict    = NF_DROP;
+                    	}
+                    	else
+                    	{
+                    	    filterMode = FILTER_MODE_OFF;
+                    	}
+                        return verdict;
+                    }
+
                     if (tcph!= NULL)
                     {
                         delFlag = (tcph->fin || tcph->rst);
                     }
-                    verdict     = NF_QUEUE;
+                    verdict     = NF_QUEUE_NR(5001);
                     rejected    = find_tcp_TrackInfo(rejected_TrackInfo, skb, delFlag);     // If this is FIN packet, remove TCP Info.
                     if (rejected != NULL)   // This is Rejected
                     {
@@ -228,12 +280,8 @@ unsigned int sec_url_filter_hook( unsigned int hook_no,
                     if (delFlag == 1)
                     {
                         tcp_TrackInfo   *gettingNode    = NULL;
-
-                        verdict = NF_ACCEPT;
-                        if (rejected != NULL)
-                        {
-                            free_tcp_TrackInfo(rejected);
-                        }
+                        verdict = NF_ACCEPT;    // FIN, RST can go out.
+                        free_tcp_TrackInfo(rejected);
                         gettingNode = find_tcp_TrackInfo(getting_TrackInfo, skb, 1);    // Find previous TCP Track Info and remove from list
                         free_tcp_TrackInfo(gettingNode);
                     }
@@ -246,6 +294,10 @@ unsigned int sec_url_filter_hook( unsigned int hook_no,
 
 int sec_url_filter_slow(struct nf_queue_entry *entry, unsigned int queuenum)
 {
+#ifdef CONFIG_SEC_NET_FILTER
+    if (queuenum == ALLOWED_ID)
+    {
+#endif
     if (entry != NULL)
     {
         if (filterMode)
@@ -312,6 +364,13 @@ int sec_url_filter_slow(struct nf_queue_entry *entry, unsigned int queuenum)
         nf_reinject(entry, NF_ACCEPT);
     }
 
+#ifdef CONFIG_SEC_NET_FILTER
+    }
+	else
+    {
+	return nfqnl_enqueue_packet(entry,  queuenum);
+    }
+#endif
     return 0;
 }
 
@@ -412,7 +471,15 @@ int nfilter_init (void)
         if ((add_result = cdev_add(&url_cdev, url_ver, 1)) <0) break;
         if ((add_send_hook =nf_register_hook( &sec_url_filter)) <0) break;
         if (nf_register_hook( &sec_url_recv_filter) <0) break;
+#ifdef  _NF_CHECK_REGISTER_NULL
+        if (nf_register_queue_handler_is_null())
+        {
+             pr_info("%s:%s SEC_URL_FILTER : queue handler is null!\n", __FILE__, __func__);
+#endif
         nf_register_queue_handler(PF_INET, &sec_url_queue_handler);
+#ifdef  _NF_CHECK_REGISTER_NULL
+        }
+#endif
         return 0;
     }while(0);
     deInit_Managers();
@@ -421,7 +488,7 @@ int nfilter_init (void)
     if (url_class != NULL) class_destroy(url_class);
     if (alloc_result == 0) unregister_chrdev_region(url_ver, 1);
     if (add_send_hook == 0) nf_unregister_hook(&sec_url_filter);
-    printk(KERN_ALERT "SEC_FILTER : FAIL TO INIT\n");
+    printk(KERN_ALERT "SEC_URL_FILTER : FAIL TO INIT\n");
     return -1;
 }
 
@@ -440,10 +507,12 @@ void nfilter_exit(void)
     clean_tcp_TrackInfos(notified_TrackInfo);
     clean_tcp_TrackInfos(rejected_TrackInfo);
     deInit_Managers();
-    printk(KERN_ALERT "SEC_FILTER : DEINITED\n");
+    printk(KERN_ALERT "SEC_URL_FILTER : DEINITED\n");
 }
-
-module_init(nfilter_init);
+#ifdef CONFIG_SEC_NET_FILTER
+EXPORT_SYMBOL(sec_url_filter_slow);
+#endif
+late_initcall(nfilter_init);
 module_exit(nfilter_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("SAMSUNG Electronics");

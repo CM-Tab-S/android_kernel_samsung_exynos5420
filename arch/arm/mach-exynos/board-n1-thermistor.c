@@ -14,6 +14,11 @@
 #include <mach/sec_thermistor.h>
 
 static struct sec_therm_adc_table temper_table_ap[] = {
+	{150, 850},
+	{156, 840},
+	{162, 830},
+	{168, 820},
+	{175, 810},
 	{181, 800},
 	{189, 790},
 	{197, 780},

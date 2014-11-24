@@ -1,4 +1,4 @@
-/* /linux/drivers/misc/modem_if/modem_link_pm_xmm626x.c
+/* /linux/drivers/misc/modem_v2/link_pm_hsic_xmm626x.c
  *
  * Copyright (C) 2012 Google, Inc.
  * Copyright (C) 2012 Samsung Electronics.
@@ -13,6 +13,7 @@
  * GNU General Public License for more details.
  *
  */
+#define DEBUG
 
 #include <linux/gpio.h>
 #include <linux/miscdevice.h>
@@ -24,9 +25,10 @@
 #include <linux/slab.h>
 #include <linux/suspend.h>
 #include <linux/platform_device.h>
+#include <linux/platform_data/modem_v2.h>
+#include <linux/pm_qos.h>
 
-#include <linux/platform_data/modem.h>
-
+#include <plat/usb-phy.h>
 #include "modem_prj.h"
 #include "modem_utils.h"
 #include "modem_link_device_hsic_ncm.h"
@@ -45,15 +47,13 @@
 #define get_hostactive(p) \
 	(gpio_get_value((p)->pdata->gpio_link_active))
 
-#define MAX_SUSPEND_BUSY 20
-
 /* /sys/module/modem_link_pm_xmm626x/parameters/...*/
-static int l2_delay = 200;
-module_param(l2_delay, int, S_IRUGO);
+static int l2_delay = 500;
+module_param(l2_delay, int, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(l2_delay, "HSIC autosuspend delay");
 
-static int hub_delay = 500;
-module_param(hub_delay, int, S_IRUGO);
+static int hub_delay = 100;
+module_param(hub_delay, int, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(hub_delay, "Root-hub autosuspend delay");
 
 enum linkpm_status {
@@ -76,21 +76,23 @@ struct xmm626x_linkpm_data {
 	struct modemlink_pm_data *pdata;
 	struct usb_device *udev;
 	struct usb_device *hdev;
+	struct notifier_block phy_nfb;
 	struct notifier_block usb_nfb;
 	struct notifier_block pm_nfb;
+	struct notifier_block pm_qos_nfb;
 
-	bool link_connected;
-	bool l3l0_req; /* hub resume require */
+	unsigned link_connected;
 	bool dpm_suspending;
-	bool resume_req;
 	spinlock_t lock;
 	struct workqueue_struct *wq;
 	struct delayed_work link_pm_work;
 	struct delayed_work link_pm_event;
 	unsigned long events;
-	int suspend_busy_cnt;
 	int resume_cnt;
 	struct wake_lock l2_wake;
+	bool resume_req;
+	struct wake_lock tx_wake;
+	struct usb_link_device *usb_ld;
 };
 
 enum known_device_type {
@@ -107,10 +109,13 @@ struct  link_usb_id {
 
 /*TODO: get pid, vid from platform data */
 static struct link_usb_id xmm626x_ids[] = {
-	{0x1519, 0x0443, MIF_MAIN_DEVICE}, /* XMM6360 */
+	{0x1519, 0x0443, MIF_MAIN_DEVICE}, /* XMM6360, ACM3+NCM4 */
+	{0x8087, 0x0940, MIF_MAIN_DEVICE}, /* XMM6360, ACM2+NCM4 */
 	{0x8087, 0x0716, MIF_BOOT_DEVICE}, /* XMM6360 */
 	{0x1519, 0x0020, MIF_MAIN_DEVICE}, /* XMM6262 */
 	{0x058b, 0x0041, MIF_BOOT_DEVICE}, /* XMM6262 */
+	{0x8087, 0x07ed, MIF_BOOT_DEVICE}, /* XMM7260, BOOTROM_UART */
+	{0x8087, 0x07ef, MIF_BOOT_DEVICE}, /* XMM7260, BOOTROM_HSIC */
 };
 
 struct linkpm_devices {
@@ -129,8 +134,11 @@ static int xmm626x_linkpm_known_device(struct xmm626x_linkpm_data *pmdata,
 
 	for (i = 0; i < ARRAY_SIZE(xmm626x_ids); i++) {
 		if (xmm626x_ids[i].vid == desc->idVendor &&
-					xmm626x_ids[i].pid == desc->idProduct)
+					xmm626x_ids[i].pid == desc->idProduct) {
+			mif_debug("### vid=0x%x, pid=0x%x\n", desc->idVendor,
+				desc->idProduct);
 			return xmm626x_ids[i].type;
+		}
 	}
 	return MIF_UNKNOWN_DEVICE;
 }
@@ -160,6 +168,34 @@ static void usb_cp_crash(struct usb_device *udev, char *msg)
 	pdata->cp_force_crash_exit();
 }
 
+int usb_linkpm_request_resume(struct usb_device *udev)
+{
+	struct xmm626x_linkpm_data *pmdata = linkdata_from_udev(udev);
+	struct device *dev;
+
+	if (!pmdata || !pmdata->link_connected)
+		return -ENODEV;
+
+	/* already resumed, update lastbusy */
+	dev = &pmdata->udev->dev;
+	if (dev->power.runtime_status == RPM_ACTIVE) {
+		pm_runtime_mark_last_busy(dev);
+		return 0;
+	}
+
+	/* Hold kernel wakeup status until port resumed */
+	wake_lock(&pmdata->tx_wake);
+
+	if (pmdata->dpm_suspending) {
+		mif_info("will be resume for TX\n");
+		return 0;
+	}
+
+	mif_info("resume request for TX\n");
+	queue_delayed_work(pmdata->wq, &pmdata->link_pm_work, 0);
+	return 0;
+}
+
 static void set_slavewake(struct modemlink_pm_data *pm_data, int val)
 {
 	if (!val) {
@@ -172,14 +208,12 @@ static void set_slavewake(struct modemlink_pm_data *pm_data, int val)
 		}
 		gpio_set_value(pm_data->gpio_link_slavewake, 1);
 	}
-	mif_debug("slave wake(%d)\n",
+	mif_info("slave wake(%d)\n",
 		gpio_get_value(pm_data->gpio_link_slavewake));
 }
 
 static void xmm626x_gpio_l3tol0_resume(struct xmm626x_linkpm_data *pmdata)
 {
-	pmdata->l3l0_req = false;
-
 	if (get_hostactive(pmdata))
 		return;
 
@@ -201,11 +235,15 @@ static int xmm626x_gpio_l2tol0_resume(struct xmm626x_linkpm_data *pmdata)
 	int spin = 20;
 
 	/* CP initiated L2->L0 */
-	if (get_hostwake(pmdata))
+	if (get_hostwake(pmdata)) {
+		pmdata->usb_ld->resumeby = HSIC_RESUMEBY_CP;
+		mif_debug("CP initiated L2->L0\n");
 		goto exit;
+	}
 
 	/* AP initiated L2->L0 */
 	set_slavewake(pmdata->pdata, 1);
+	pmdata->usb_ld->resumeby = HSIC_RESUMEBY_AP;
 
 	while (spin-- && !get_hostwake(pmdata))
 		mdelay(5);
@@ -226,27 +264,11 @@ static int xmm626x_linkpm_usb_resume(struct usb_device *udev, pm_message_t msg)
 	if (!pmdata)
 		goto generic_resume;
 
-	if (pmdata->dpm_suspending) {
-		mif_info("dpm_suspending, resume_req\n");
-		pmdata->resume_req = true;
-	}
-
 	/* root hub resume
 	   If Host active was low before root hub resume, do L3->L0 sequence */
 	if (udev == pmdata->hdev) {
 		xmm626x_gpio_l3tol0_resume(pmdata);
 		goto generic_resume;
-	}
-
-	/* Because HSIC modem skip the hub dpm_resume by quirk, if root hub
-	  dpm_suspend was called at runtmie active status, hub resume was not
-	  call by port runtime resume. So, it check the L3 status and root hub
-	  resume before port resume */
-	if (!get_hostactive(pmdata) || pmdata->l3l0_req) {
-		mif_err("usb1 root hub resume first\n");
-		ret = usb_resume(&pmdata->hdev->dev, PMSG_RESUME);
-		if (ret)
-			mif_err("hub resume fail\n");
 	}
 
 	/* get wake lock */
@@ -272,9 +294,6 @@ retry:
 			usb_cp_crash(pmdata->udev, "HostWakeup Fail");
 		}
 	}
-done:
-	pmdata->suspend_busy_cnt = MAX_SUSPEND_BUSY;
-	pmdata->resume_req = false;
 
 generic_resume:
 	return _usb_resume(udev, msg);
@@ -284,8 +303,18 @@ static int xmm626x_linkpm_usb_suspend(struct usb_device *udev, pm_message_t msg)
 {
 	struct xmm626x_linkpm_data *pmdata = linkdata_from_udev(udev);
 
-	if (!pmdata || udev == pmdata->hdev)
+	if (!pmdata)
 		goto generic_suspend;
+
+	if (udev == pmdata->hdev) {
+		if (msg.event == PM_EVENT_SUSPEND) {
+			pm_runtime_disable(&udev->dev);
+			pm_runtime_set_suspended(&udev->dev);
+			pm_runtime_enable(&udev->dev);
+			mif_info("Set force root-hub rpm suspend\n");
+		}
+		goto generic_suspend;
+	}
 
 	if (pmdata->pdata->gpio_link_suspend_req
 		&& !gpio_get_value(pmdata->pdata->gpio_link_suspend_req)) {
@@ -293,12 +322,7 @@ static int xmm626x_linkpm_usb_suspend(struct usb_device *udev, pm_message_t msg)
 		return -EBUSY;
 	}
 
-	if (pmdata->dpm_suspending && pmdata->resume_req) {
-		mif_info("resume_req");
-		return -EBUSY;
-	}
-
-	/* release wake lock */
+	/* release wake lock with L3 guard time 50ms */
 	wake_lock_timeout(&pmdata->l2_wake, msecs_to_jiffies(50));
 	mif_debug("release wakelock timeout\n");
 
@@ -347,20 +371,22 @@ static int xmm626x_linkpm_usb_notify(struct notifier_block *nfb,
 			mif_info("hook: (%pf, %pf), (%pf, %pf)\n",
 					_usb_resume, udriver->resume,
 					_usb_suspend,	udriver->suspend);
-			pmdata->link_connected = true;
-			pmdata->resume_req = false;
+			pmdata->link_connected = MIF_MAIN_DEVICE;
 			enable_irq(gpio_to_irq(
 					pmdata->pdata->gpio_link_hostwake));
-			pmdata->suspend_busy_cnt = MAX_SUSPEND_BUSY;
 			pmdata->resume_cnt = 0;
 			pmdata->dpm_suspending = false;
 			set_bit(LINKPM_EVENT_RUNTIME, &pmdata->events);
 			queue_delayed_work(pmdata->wq, &pmdata->link_pm_event,
 							msecs_to_jiffies(500));
+			/* Share the pmdata with interface driver */
+			pmdata->usb_ld = (struct usb_link_device *)
+				dev_get_drvdata(&udev->dev);
+			mif_info("ld : %s\n", pmdata->usb_ld->ld.name);
 			break;
 		case MIF_BOOT_DEVICE:
 			mif_info("boot dev connected\n");
-			pmdata->link_connected = true;
+			pmdata->link_connected = MIF_BOOT_DEVICE;
 			break;
 		default:
 			break;
@@ -371,8 +397,14 @@ static int xmm626x_linkpm_usb_notify(struct notifier_block *nfb,
 		case MIF_MAIN_DEVICE:
 			disable_irq(gpio_to_irq(
 					pmdata->pdata->gpio_link_hostwake));
-			pmdata->link_connected = false;
+			pmdata->link_connected = 0;
 			cancel_delayed_work_sync(&pmdata->link_pm_work);
+			pmdata->resume_req = false;
+			wake_unlock(&pmdata->tx_wake);
+			wake_unlock(&pmdata->l2_wake);
+			/* clear previous event and stop event work*/
+			pmdata->events = 0;
+			cancel_delayed_work_sync(&pmdata->link_pm_event);
 			mif_info("unhook: (%pf, %pf), (%pf, %pf)\n",
 					_usb_resume, udriver->resume,
 					_usb_suspend,	udriver->suspend);
@@ -393,7 +425,7 @@ static int xmm626x_linkpm_usb_notify(struct notifier_block *nfb,
 			pmdata->udev = NULL;
 			break;
 		case MIF_BOOT_DEVICE:
-			pmdata->link_connected = false;
+			pmdata->link_connected = 0;
 			mif_info("boot dev disconnected\n");
 			break;
 		default:
@@ -413,27 +445,80 @@ static int xmm626x_linkpm_pm_notify(struct notifier_block *nfb,
 	struct xmm626x_linkpm_data *pmdata =
 			container_of(nfb, struct xmm626x_linkpm_data, pm_nfb);
 
-	if (!pmdata || !pmdata->link_connected) {
+	if (!pmdata || pmdata->link_connected != MIF_MAIN_DEVICE) {
 		mif_info("HSIC not connected, skip\n");
 		return NOTIFY_DONE;
 	}
+
+	mif_debug("event(%ld)\n", event);
 
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
 		pmdata->dpm_suspending = true;
 		cancel_delayed_work_sync(&pmdata->link_pm_work);
+		pmdata->resume_req = false;
 		break;
 	case PM_POST_SUSPEND:
 		pmdata->dpm_suspending = false;
-		if (get_hostwake(pmdata) || pmdata->resume_req) {
+		/* L3->L0, CP request resume, TX resume req*/
+		if (!get_hostactive(pmdata) || get_hostwake(pmdata)
+					|| wake_lock_active(&pmdata->tx_wake)) {
 			wake_lock(&pmdata->l2_wake);
 			mif_debug("get wakelock\n");
-			queue_delayed_work(pmdata->wq, &pmdata->link_pm_work,
-									0);
+			queue_delayed_work(pmdata->wq, &pmdata->link_pm_work, 0);
 		}
 		break;
 	}
 	return NOTIFY_DONE;
+}
+
+static int xmm626x_linkpm_phy_notify(struct notifier_block *nfb,
+						unsigned long event, void *arg)
+{
+	struct xmm626x_linkpm_data *pmdata =
+			container_of(nfb, struct xmm626x_linkpm_data, phy_nfb);
+	struct modemlink_pm_data *pdata = pmdata->pdata;
+
+	if (pmdata->link_connected != MIF_MAIN_DEVICE) {
+		mif_debug("CP is not active\n");
+		return NOTIFY_DONE;
+	}
+
+	switch (event) {
+	case STATE_HSIC_LPA_ENTER:
+		gpio_set_value(pdata->gpio_link_active, 0);
+		mif_info("lpa enter(%ld): active state(%d)\n",
+			event, gpio_get_value(pdata->gpio_link_active));
+		break;
+	case STATE_HSIC_PHY_SHUTDOWN:
+		gpio_direction_output(pdata->gpio_link_active, 0);
+		mif_info("phy_exit(%ld): active state(%d)\n",
+			event, gpio_get_value(pdata->gpio_link_active));
+		break;
+	case STATE_HSIC_CHECK_HOSTWAKE:
+		if (get_hostwake(pmdata))
+			return NOTIFY_BAD;
+		break;
+	}
+	return NOTIFY_DONE;
+}
+
+static int xmm626x_linkpm_pm_qos_notify(struct notifier_block *nfb,
+						unsigned long event, void *arg)
+{
+	struct xmm626x_linkpm_data *pmdata =
+		container_of(nfb, struct xmm626x_linkpm_data, pm_qos_nfb);
+
+
+	if (!pmdata->pdata->freq_lock || !pmdata->pdata->freq_unlock)
+		return NOTIFY_OK;
+
+	if (event)
+		pmdata->pdata->freq_lock(event);
+	else
+		pmdata->pdata->freq_unlock();
+
+	return NOTIFY_OK;
 }
 
 static long link_pm_ioctl(struct file *file, unsigned int cmd,
@@ -503,8 +588,12 @@ static void link_pm_runtime_work(struct work_struct *work)
 	struct device *dev = &pmdata->udev->dev;
 
 	mif_debug("rpm_status(%d)\n", dev->power.runtime_status);
+
 	switch (dev->power.runtime_status) {
 	case RPM_SUSPENDED:
+		if (pmdata->resume_req)
+			break;
+		pmdata->resume_req = true;
 		ret = pm_runtime_resume(dev);
 		if (ret < 0) {
 			mif_err("resume error(%d)\n", ret);
@@ -513,6 +602,7 @@ static void link_pm_runtime_work(struct work_struct *work)
 						!dev->power.request_pending) {
 				mif_debug("run time idle\n");
 				pm_runtime_idle(dev);
+				pmdata->resume_req = false;
 			}
 		}
 		break;
@@ -527,15 +617,19 @@ static void link_pm_runtime_work(struct work_struct *work)
 
 	if (dev->power.runtime_status == RPM_ACTIVE) {	/*resume success*/
 		pmdata->resume_cnt = 0;
+		pmdata->resume_req = false;
+		wake_unlock(&pmdata->tx_wake);
 	} else if (pmdata->resume_cnt++ > 30) { /*resume fail over 30 times*/
+		pmdata->resume_req = false;
 		mif_info("rpm_status(%d), retry_cnt(%d)\n",
 			dev->power.runtime_status, pmdata->resume_cnt);
 		usb_cp_crash(pmdata->udev, "Runtim Resume timeout");
 		wake_unlock(&pmdata->l2_wake);
+		wake_unlock(&pmdata->tx_wake);
 	} else {				/*wait for runtime resume done*/
 		mif_info("rpm (%d), delayed work\n", dev->power.runtime_status);
 		queue_delayed_work(pmdata->wq, &pmdata->link_pm_work,
-							msecs_to_jiffies(50));
+							msecs_to_jiffies(100));
 	}
 }
 
@@ -548,21 +642,27 @@ static void link_pm_event_work(struct work_struct *work)
 
 	mif_info("0x%lx\n", pmdata->events);
 
-	if (test_bit(LINKPM_EVENT_RUNTIME, &pmdata->events)) {
+	if (test_bit(LINKPM_EVENT_RUNTIME, &pmdata->events) &&
+		(pmdata->link_connected == MIF_MAIN_DEVICE)) {
 		struct device *dev, *hdev, *roothub;
-
 		mif_info("LINKPM_EVENT_RUNTIME\n");
+		pmdata->resume_req = false;
 		dev = &udev->dev;
 		roothub = &udev->bus->root_hub->dev;
 		hdev = udev->bus->root_hub->dev.parent;
-		pm_runtime_set_autosuspend_delay(dev, l2_delay);
-		pm_runtime_set_autosuspend_delay(roothub, hub_delay);
-		pm_runtime_allow(dev);
-		pm_runtime_allow(hdev);/*ehci*/
+		if (l2_delay >= 0) {
+			pm_runtime_set_autosuspend_delay(dev, l2_delay);
+			pm_runtime_allow(dev);
+		}
+		if (hub_delay >= 0) {
+			pm_runtime_set_autosuspend_delay(roothub, hub_delay);
+			pm_runtime_allow(hdev);/*ehci*/
+		}
 		clear_bit(LINKPM_EVENT_RUNTIME, &pmdata->events);
 	}
 }
 
+#define HOST_WAKEUP_DEBUG
 /* Host wakeup interrupt handler */
 static irqreturn_t xmm626x_linkpm_hostwake(int irq, void *data)
 {
@@ -572,9 +672,32 @@ static irqreturn_t xmm626x_linkpm_hostwake(int irq, void *data)
 	if (!pmdata || !pmdata->link_connected)
 		return IRQ_HANDLED;
 
+#ifdef HOST_WAKEUP_DEBUG
+	{
+		int val = gpio_get_value(pmdata->pdata->gpio_link_hostwake);
+		static int unchange;
+		static int prev_val;
+
+		if (pmdata->link_connected == MIF_MAIN_DEVICE) {
+			if (prev_val == val) {
+				if (unchange++ > 50) {
+					mif_err("Abnormal Host_wakeup GPIO irqs\n");
+					disable_irq_nosync(pmdata->pdata->gpio_link_hostwake);
+					panic("Host_wakeup IRQ Error");
+				}
+			} else {
+				unchange = 0;
+			}
+			prev_val = val;
+		} else {
+			unchange = 0;
+		}
+	}
+#endif
+
 	host_wake = get_hostwake(pmdata);
 	slave_wake = !!gpio_get_value(pmdata->pdata->gpio_link_slavewake);
-	printk(KERN_DEBUG "mif: host wakeup(%d), slave(%d)\n", host_wake,
+	printk(KERN_INFO "mif: host wakeup(%d), slave(%d)\n", host_wake,
 								slave_wake);
 
 	if (slave_wake && !host_wake) {
@@ -586,6 +709,7 @@ static irqreturn_t xmm626x_linkpm_hostwake(int irq, void *data)
 	/* CP request the resume*/
 	if (pmdata->dpm_suspending) {
 		mif_info("dpm_suspending, will be resume..\n");
+		wake_lock(&pmdata->l2_wake);
 		return IRQ_HANDLED;
 	}
 	if (!slave_wake && host_wake)
@@ -653,8 +777,13 @@ static int xmm626x_linkpm_probe(struct platform_device *pdev)
 	usb_register_notify(&pmdata->usb_nfb);
 	pmdata->pm_nfb.notifier_call = xmm626x_linkpm_pm_notify;
 	register_pm_notifier(&pmdata->pm_nfb);
+	pmdata->phy_nfb.notifier_call =	xmm626x_linkpm_phy_notify;
+	register_usb2phy_notifier(&pmdata->phy_nfb);
+	pmdata->pm_qos_nfb.notifier_call = xmm626x_linkpm_pm_qos_notify;
+	pm_qos_add_notifier(PM_QOS_NETWORK_THROUGHPUT, &pmdata->pm_qos_nfb);
 
 	wake_lock_init(&pmdata->l2_wake, WAKE_LOCK_SUSPEND, "l2_hsic");
+	wake_lock_init(&pmdata->tx_wake, WAKE_LOCK_SUSPEND, "tx_hsic");
 
 	mif_info("success\n");
 	return 0;
@@ -680,6 +809,8 @@ static int xmm626x_linkpm_remove(struct platform_device *pdev)
 
 	usb_unregister_notify(&pmdata->usb_nfb);
 	unregister_pm_notifier(&pmdata->pm_nfb);
+	unregister_usb2phy_notifier(&pmdata->phy_nfb);
+	pm_qos_remove_notifier(PM_QOS_NETWORK_THROUGHPUT, &pmdata->pm_qos_nfb);
 
 	spin_lock_bh(&xmm626x_devices.lock);
 	list_del(&pmdata->link);
@@ -692,82 +823,12 @@ static int xmm626x_linkpm_remove(struct platform_device *pdev)
 	return ret;
 }
 
-static int xmm626x_linkpm_resume_noirq(struct device *dev)
-{
-	struct xmm626x_linkpm_data *pmdata = dev_get_drvdata(dev);
-
-	if (!pmdata)
-		return 0;
-
-	mif_debug("resume\n");
-	/*disable_irq_wake(gpio_to_irq(pmdata->pdata->gpio_link_hostwake));*/
-	enable_irq(gpio_to_irq(pmdata->pdata->gpio_link_hostwake));
-	mif_info("enable hostwakeup irq\n");
-	return 0;
-}
-
-static int xmm626x_linkpm_suspend(struct device *dev)
-{
-	int ret = 0;
-	struct xmm626x_linkpm_data *pmdata = dev_get_drvdata(dev);
-
-	mif_debug("suspend\n");
-	if (!pmdata || !pmdata->link_connected) {
-		mif_info("HSIC not connected, skip\n");
-		return 0;
-	}
-	pmdata->l3l0_req = true;
-	if (get_hostwake(pmdata) || pmdata->resume_req) {
-		mif_info("hostwakeup(%d) resume_req(%d), suspend fail\n",
-			get_hostwake(pmdata), pmdata->resume_req);
-		goto suspend_yet;
-	}
-	return ret;
-
-suspend_yet:
-	return -EBUSY;
-}
-
-/*
- * If CP send host wakeup until AP L3 to kernel suspend,
- * it will suspend_noirq fail and resume to L0
- */
-static int xmm626x_linkpm_suspend_noirq(struct device *dev)
-{
-	struct xmm626x_linkpm_data *pmdata = dev_get_drvdata(dev);
-	int hostwake;
-
-	if (!pmdata || !pmdata->link_connected) {
-		mif_debug("HSIC not connected, skip\n");
-		return 0;
-	}
-
-	disable_irq(gpio_to_irq(pmdata->pdata->gpio_link_hostwake));
-	hostwake = get_hostwake(pmdata);
-	mif_debug("check host wakeup level(%d)\n", hostwake);
-	if (hostwake || pmdata->resume_req) {
-		mif_info("hostwakeup(%d) resume_req(%d), suspend fail\n",
-			get_hostwake(pmdata), pmdata->resume_req);
-		enable_irq(gpio_to_irq(pmdata->pdata->gpio_link_hostwake));
-		return -EAGAIN;
-	}
-	/*enable_irq_wake(gpio_to_irq(pmdata->pdata->gpio_link_hostwake));*/
-	return 0;
-}
-
-static const struct dev_pm_ops xmm626x_linkpm_pm_ops = {
-	.suspend = xmm626x_linkpm_suspend,
-	.resume_noirq = xmm626x_linkpm_resume_noirq,
-	.suspend_noirq = xmm626x_linkpm_suspend_noirq,
-};
-
 static struct platform_driver xmm626x_linkpm_driver = {
 	.probe = xmm626x_linkpm_probe,
 	.remove = xmm626x_linkpm_remove,
 	.driver = {
 		.name = "linkpm-xmm626x",
 		.owner = THIS_MODULE,
-		.pm = &xmm626x_linkpm_pm_ops,
 	},
 };
 

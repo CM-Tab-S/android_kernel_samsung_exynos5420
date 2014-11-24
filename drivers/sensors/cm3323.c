@@ -73,6 +73,10 @@ struct cm3323_p {
 	u16 color[4];
 	int irq;
 	int time_count;
+#ifdef CONFIG_SENSORS_ESD_DEFENCE
+	int zero_cnt;
+	int reset_cnt;
+#endif
 };
 
 static int cm3323_i2c_read_word(struct cm3323_p *data,
@@ -161,6 +165,24 @@ static void cm3323_work_func_light(struct work_struct *work)
 	input_report_rel(data->input, REL_WHITE, data->color[3] + 1);
 	input_sync(data->input);
 
+#ifdef CONFIG_SENSORS_ESD_DEFENCE
+	if ((data->color[0] == 0) && (data->color[1] == 0)
+		&& (data->color[3] == 0) && (data->color[2] == 0)
+		&& (data->reset_cnt < 20))
+		data->zero_cnt++;
+	else
+		data->zero_cnt = 0;
+
+	if (data->zero_cnt >= 25) {
+		pr_info("[SENSOR]: %s - ESD Defence Reset!\n", __func__);
+		cm3323_i2c_write(data, REG_CS_CONF1, als_reg_setting[1][1]);
+		usleep_range(1000, 10000);
+		cm3323_i2c_write(data, REG_CS_CONF1, als_reg_setting[0][1]);
+		data->zero_cnt = 0;
+		data->reset_cnt++;
+	}
+#endif
+
 	if (((int64_t)atomic_read(&data->delay) * (int64_t)data->time_count)
 		>= ((int64_t)LIGHT_LOG_TIME * NSEC_PER_SEC)) {
 		pr_info("[SENSOR]: %s - r = %u g = %u b = %u w = %u\n",
@@ -219,6 +241,10 @@ static ssize_t light_enable_store(struct device *dev,
 	if (enable && !(data->power_state & LIGHT_ENABLED)) {
 		data->power_state |= LIGHT_ENABLED;
 		cm3323_light_enable(data);
+#ifdef CONFIG_SENSORS_ESD_DEFENCE
+		data->zero_cnt = 0;
+		data->reset_cnt = 0;
+#endif
 	} else if (!enable && (data->power_state & LIGHT_ENABLED)) {
 		cm3323_light_disable(data);
 		data->power_state &= ~LIGHT_ENABLED;
@@ -337,7 +363,7 @@ static int cm3323_input_init(struct cm3323_p *data)
 
 	ret = input_register_device(dev);
 	if (ret < 0) {
-		input_free_device(data->input);
+		input_free_device(dev);
 		return ret;
 	}
 
@@ -349,8 +375,7 @@ static int cm3323_input_init(struct cm3323_p *data)
 
 	ret = sysfs_create_group(&dev->dev.kobj, &light_attribute_group);
 	if (ret < 0) {
-		sensors_remove_symlink(&data->input->dev.kobj,
-			data->input->name);
+		sensors_remove_symlink(&dev->dev.kobj, dev->name);
 		input_unregister_device(dev);
 		return ret;
 	}

@@ -113,14 +113,19 @@ int gsc_fill_addr(struct gsc_ctx *ctx)
 
 void gsc_op_timer_handler(unsigned long arg)
 {
-	struct gsc_ctx *ctx = (struct gsc_ctx *)arg;
-	struct gsc_dev *gsc = ctx->gsc_dev;
+	struct gsc_dev *gsc = (struct gsc_dev *)arg;
+	struct gsc_ctx *ctx = v4l2_m2m_get_curr_priv(gsc->m2m.m2m_dev);
 	struct vb2_buffer *src_vb, *dst_vb;
-
+#ifdef GSC_PERF
+	gsc->end_time = sched_clock();
+	gsc_err("expire time: %llu\n", gsc->end_time - gsc->start_time);
+#endif
 	gsc_dump_registers(gsc);
+	exynos_iommu_dump_status(&gsc->pdev->dev);
 
 	clear_bit(ST_M2M_RUN, &gsc->state);
 	pm_runtime_put(&gsc->pdev->dev);
+	gsc->runtime_put_cnt++;
 
 	src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
 	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
@@ -145,11 +150,29 @@ static void gsc_m2m_device_run(void *priv)
 
 	gsc = ctx->gsc_dev;
 
-	if (in_irq())
-		pm_runtime_get(&gsc->pdev->dev);
-	else
+	if (!in_irq()) {
 		pm_runtime_get_sync(&gsc->pdev->dev);
+		gsc->runtime_get_cnt++;
+	} else {
+		pm_runtime_get(&gsc->pdev->dev);
+		gsc->runtime_get_cnt++;
+		gsc_info("irq context");
+	}
 
+#ifdef CONFIG_SOC_EXYNOS5420
+	if (!(readl(EXYNOS5_CLKSRC_TOP5) & (1 << 28))) {
+		if (clk_set_parent(gsc->clock[CLK_CHILD],
+			gsc->clock[CLK_PARENT])) {
+			u32 reg = readl(EXYNOS5_CLKSRC_TOP5);
+			reg |= (1 << 28);
+			writel(reg, EXYNOS5_CLKSRC_TOP5);
+			gsc_err("Unable to set parent of gsc");
+		}
+		gsc_err("get_cnt : %d, put_cnt : %d",
+			gsc->runtime_get_cnt, gsc->runtime_put_cnt);
+		gsc_err("state : 0x%lx", gsc->state);
+	}
+#endif
 	spin_lock_irqsave(&ctx->slock, flags);
 	/* Reconfigure hardware if the context has changed. */
 	if (gsc->m2m.ctx != ctx) {
@@ -231,10 +254,9 @@ static void gsc_m2m_device_run(void *priv)
 			gsc_err("gscaler wait operating timeout");
 			goto put_device;
 		}
+		gsc->op_timer.expires = (jiffies + 2 * HZ);
+		add_timer(&gsc->op_timer);
 	}
-
-	ctx->op_timer.expires = (jiffies + 2 * HZ);
-	add_timer(&ctx->op_timer);
 
 	spin_unlock_irqrestore(&ctx->slock, flags);
 	return;
@@ -699,10 +721,6 @@ static int gsc_m2m_open(struct file *file)
 	ctx->out_path = GSC_DMA;
 	spin_lock_init(&ctx->slock);
 
-	init_timer(&ctx->op_timer);
-	ctx->op_timer.data = (unsigned long)ctx;
-	ctx->op_timer.function = gsc_op_timer_handler;
-
 	INIT_LIST_HEAD(&ctx->fence_wait_list);
 	INIT_WORK(&ctx->fence_work, gsc_m2m_fence_work);
 
@@ -822,6 +840,9 @@ int gsc_register_m2m_device(struct gsc_dev *gsc)
 			 "%s(): failed to register video device\n", __func__);
 		goto err_m2m_r2;
 	}
+
+	setup_timer(&gsc->op_timer, gsc_op_timer_handler,
+			(unsigned long)gsc);
 
 	gsc_dbg("gsc m2m driver registered as /dev/video%d", vfd->num);
 

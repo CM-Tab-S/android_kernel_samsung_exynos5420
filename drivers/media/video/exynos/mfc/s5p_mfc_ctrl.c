@@ -211,6 +211,12 @@ int s5p_mfc_load_firmware(struct s5p_mfc_dev *dev)
 	*/
 	s5p_mfc_mem_clean_priv(s5p_mfc_bitproc_buf, s5p_mfc_bitproc_virt, 0,
 			fw_blob->size);
+
+	dev->fw.dva = s5p_mfc_bitproc_phys;
+	dev->fw.kva = s5p_mfc_bitproc_virt;
+	dev->fw.ctx = s5p_mfc_bitproc_buf;
+	dev->fw.size = fw_blob->size;
+
 	release_firmware(fw_blob);
 	mfc_debug_leave();
 	return 0;
@@ -402,10 +408,32 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 
 	mfc_debug(2, "Will now wait for completion of firmware transfer.\n");
 	if (s5p_mfc_wait_for_done_dev(dev, S5P_FIMV_R2H_CMD_FW_STATUS_RET)) {
-		mfc_err("Failed to load firmware.\n");
-		s5p_mfc_clean_dev_int_flags(dev);
-		ret = -EIO;
-		goto err_init_hw;
+		int cnt = 1, retry = 3;
+		for (; cnt <= retry; cnt++) {
+			mfc_err("Failed to load firmware. (%d/%d)\n", cnt, retry);
+			mfc_err("Pwr/Clk = %d/%d, DBG counter = 0x%x\n",
+				s5p_mfc_get_power_ref_cnt(), s5p_mfc_get_clk_ref_cnt(),
+				mfc_get_info_stage_counter());
+			msleep(500 * cnt);
+			if (IS_MFCV6(dev)) {
+				mfc_err("Try again : %d\n", cnt);
+				s5p_mfc_write_reg(0x1, S5P_FIMV_RISC_ON);
+			} else {
+				s5p_mfc_write_reg(0x3ff, S5P_FIMV_SW_RESET);
+			}
+
+			mfc_debug(2, "Will now wait for completion of firmware transfer.\n");
+			if (s5p_mfc_wait_for_done_dev(dev, S5P_FIMV_R2H_CMD_FW_STATUS_RET) == 0)
+				break;
+		}
+
+		if (cnt > retry) {
+			mfc_err("Finally failed to load.\n");
+			s5p_mfc_clean_dev_int_flags(dev);
+			ret = -EIO;
+			dev->skip_bus_waiting = 1;
+			goto err_init_hw;
+		}
 	}
 
 	s5p_mfc_clean_dev_int_flags(dev);
@@ -458,6 +486,12 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 
 err_init_hw:
 	s5p_mfc_clock_off();
+	if (ret != 0)
+		mfc_err("Init h/w is failed\n");
+
+	if (dev->skip_bus_waiting)
+		dev->skip_bus_waiting = 0;
+
 	mfc_debug_leave();
 
 	return ret;

@@ -1,4 +1,4 @@
-/* linux/arch/arm/mach-xxxx/board-m0-modems.c
+/* linux/arch/arm/mach-xxxx/board-xmm626x-modems.c
  * Copyright (C) 2010 Samsung Electronics. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
@@ -11,7 +11,7 @@
  * GNU General Public License for more details.
  */
 
-/* Modem configuraiton for M0 (P-Q + XMM6262)*/
+/* Modem configuraiton for Exynos5420 + XMM6262 */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -27,8 +27,11 @@
 #include <linux/usb/hcd.h>
 #include <linux/usb/ehci_def.h>
 
+#ifdef CONFIG_SEC_MODEM_IF
 #include <linux/platform_data/modem_if.h>
-#include <mach/sec_modem.h>
+#else
+#include <linux/platform_data/modem_v2.h>
+#endif
 
 #include <linux/io.h>
 #include <mach/map.h>
@@ -241,7 +244,6 @@ static void s5p_ehci_wait_cp_resume(int port)
 #endif
 }
 
-
 static int umts_link_reconnect(void);
 static struct modemlink_pm_data modem_link_pm_data = {
 	.name = "link_pm",
@@ -331,36 +333,6 @@ int get_hostwake_state(void)
 	return (!gpio_get_value(modem_link_pm_data.gpio_link_hostwake));
 }
 
-void set_hsic_lpa_states(int states)
-{
-	int val = gpio_get_value(umts_modem_data.gpio_cp_reset);
-
-	mif_trace("\n");
-
-	if (val) {
-		switch (states) {
-		case STATE_HSIC_LPA_ENTER:
-			gpio_set_value(modem_link_pm_data.gpio_link_active, 0);
-			gpio_set_value(umts_modem_data.gpio_pda_active, 0);
-			mif_info("enter: active state(%d), pda active(%d)\n",
-				gpio_get_value(
-					modem_link_pm_data.gpio_link_active),
-				gpio_get_value(umts_modem_data.gpio_pda_active)
-				);
-			break;
-		case STATE_HSIC_LPA_WAKE:
-			gpio_set_value(umts_modem_data.gpio_pda_active, 1);
-			mif_info("wake: pda active(%d)\n",
-				gpio_get_value(umts_modem_data.gpio_pda_active)
-				);
-			break;
-		case STATE_HSIC_LPA_PHY_INIT:
-			gpio_set_value(umts_modem_data.gpio_pda_active, 1);
-			break;
-		}
-	}
-}
-
 int get_cp_active_state(void)
 {
 	return gpio_get_value(umts_modem_data.gpio_phone_active);
@@ -380,7 +352,6 @@ static int umts_link_reconnect(void)
 
 	return 0;
 }
-
 
 /* if use more than one modem device, then set id num */
 static struct platform_device umts_modem = {
@@ -411,6 +382,7 @@ static void umts_modem_cfg_gpio(void)
 			mif_err("fail to request gpio %s:%d\n", "RESET_REQ_N",
 				ret);
 		gpio_direction_output(gpio_reset_req_n, 0);
+		s3c_gpio_setpull(gpio_reset_req_n, S3C_GPIO_PULL_NONE);
 	}
 
 	if (gpio_cp_on) {
