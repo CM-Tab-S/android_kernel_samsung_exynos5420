@@ -1,6 +1,5 @@
 menuconfig SEC_MODEM_V2
 	bool "Samsung Mobile Modem Interface V2"
-	default n
 	---help---
 	  Samsung Modem Interface Drivers for
 	  SAMSUNG IPC models
@@ -17,8 +16,6 @@ config SEC_MODEM_XMM6360
 	select EHCI_IRQ_DISTRIBUTION
 
 config SEC_MODEM_XMM6262
-	bool "XMM6262 feature"
-	default n
 	select UMTS_MODEM_XMM6262
 	select LINK_DEVICE_HSIC
 

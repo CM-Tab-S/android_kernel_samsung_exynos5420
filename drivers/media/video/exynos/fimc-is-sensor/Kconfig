@@ -52,8 +52,6 @@ endchoice
 
 config VISION_MODE
 	bool "Enable Vision mode"
-	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS ||\
-			VIDEO_EXYNOS_MIPI_CSIS) && VIDEO_S5K6B2 &&\
-			VIDEO_EXYNOS5_FIMC_IS_SENSOR
+	depends on (VIDEO_FIMC_MIPI || VIDEO_S5P_MIPI_CSIS || VIDEO_EXYNOS_MIPI_CSIS && VIDEO_S5K6B2 && VIDEO_EXYNOS5_FIMC_IS_SENSOR)
 	---help---
 	  This enables support for Vision mode

@@ -18,7 +18,6 @@ menuconfig MALI_T6XX
 	default n
 	help
 	  Enable this option to build support for the ARM Mali-T6XX GPU.
-
 	  To compile this driver as a module, choose M here:
 	  this will generate a single module, called mali_kbase.
 

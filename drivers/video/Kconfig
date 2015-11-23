@@ -2073,8 +2073,6 @@ config FB_I80IF
 	---help---
 	  This enables Samsung MIPI DSI command mode.
 
-<<<<<<< HEAD
-=======
 config FB_HW_TRIGGER
 	bool "Samsung hardware trigger mode"
 	depends on FB_S3C
@@ -2082,7 +2080,6 @@ config FB_HW_TRIGGER
 	---help---
 	  This enables Samsung hardware trigger mode.
 
->>>>>>> b682b99... importet sammy NJ2
 config FB_S5P_MDNIE
         bool "Samsung MDNIE"
         depends on FB_S3C
